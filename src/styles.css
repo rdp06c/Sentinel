@@ -464,6 +464,61 @@
             border-bottom: none;
         }
 
+        /* ── Compact Holdings (Sidebar) ──────────────────── */
+        .sidebar-holding-compact {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 7px 4px;
+            border-bottom: 1px solid var(--border-subtle);
+            transition: background var(--transition-fast);
+        }
+
+        .sidebar-holding-compact:last-child {
+            border-bottom: none;
+        }
+
+        .sidebar-holding-compact:hover {
+            background: var(--bg-hover);
+        }
+
+        .compact-left {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .compact-symbol {
+            font-weight: 700;
+            font-size: 13px;
+            color: var(--text-primary);
+            letter-spacing: 0.3px;
+        }
+
+        .compact-shares {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .compact-right {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .compact-price {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .compact-daily {
+            font-size: 11px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
         /* Holdings card (rich card in updateUI) */
         .holding-card {
             flex-direction: column;
@@ -2105,6 +2160,62 @@
         .regime-vix.vix-normal { color: var(--text-secondary); }
         .regime-vix.vix-elevated { color: var(--yellow); }
         .regime-vix.vix-panic { color: var(--red); }
+
+        /* ── Sector Rotation Heatmap ──────────────────────── */
+        .rotation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .rotation-card {
+            background: var(--bg-inset);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            border-top: 3px solid var(--text-faint);
+        }
+
+        .rotation-card.inflow { border-top-color: var(--green); }
+        .rotation-card.outflow { border-top-color: var(--red); }
+        .rotation-card.neutral { border-top-color: var(--text-muted); }
+
+        .rotation-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .rotation-card-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .rotation-flow-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .rotation-flow-badge.inflow { background: var(--green-dim); color: var(--green); }
+        .rotation-flow-badge.outflow { background: var(--red-dim); color: var(--red); }
+        .rotation-flow-badge.neutral { background: var(--bg-raised); color: var(--text-muted); }
+
+        .rotation-stats {
+            font-size: 11px;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+
+        .rotation-stat-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
 
         /* ── Regime Timeline (Learning Insights) ──────────── */
         .regime-timeline {

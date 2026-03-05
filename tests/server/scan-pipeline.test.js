@@ -69,11 +69,16 @@ describe('scan-pipeline', () => {
 
             const result = fns.scoreAll(marketData, barsMap, vix);
 
-            assert.ok(Array.isArray(result));
-            assert.equal(result.length, 3);
+            // scoreAll now returns { scores, sectorRotation, vix }
+            assert.ok(result.scores, 'should have scores array');
+            assert.ok(result.sectorRotation, 'should have sectorRotation');
+            assert.equal(result.vix, vix, 'should pass through vix');
+
+            assert.ok(Array.isArray(result.scores));
+            assert.equal(result.scores.length, 3);
 
             // Each entry should have required fields
-            for (const entry of result) {
+            for (const entry of result.scores) {
                 assert.ok(entry.symbol, 'should have symbol');
                 assert.ok(typeof entry.compositeScore === 'number', 'should have compositeScore');
                 assert.ok(typeof entry.conviction === 'number', 'should have conviction');
@@ -114,7 +119,7 @@ describe('scan-pipeline', () => {
 
             const result = fns.scoreAll(marketData, barsMap, vix);
             // Should not throw — calibrated weights are loaded and used
-            assert.ok(result.length === 2);
+            assert.ok(result.scores.length === 2);
         });
     });
 

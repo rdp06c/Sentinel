@@ -27,6 +27,7 @@ let closedTrades = [];
 let transactions = [];
 let chatMessageCount = 0;
 let lastChatTime = 0;
+let stockNames = {}; // loaded from /api/stock-names
 
 // ── API Client ──
 async function apiCall(path, options = {}) {
@@ -147,6 +148,12 @@ async function loadCalibration() {
     } catch { /* calibration may not be available yet */ }
 }
 
+async function loadStockNames() {
+    try {
+        stockNames = await apiCall('/api/stock-names');
+    } catch { /* non-critical */ }
+}
+
 // ── Rendering: Portfolio ──
 function renderPortfolio() {
     if (!portfolio) return;
@@ -172,20 +179,27 @@ function renderHoldings(holdings) {
         return;
     }
 
-    list.innerHTML = holdings.map(h => {
-        const currentPrice = h.currentPrice || h.avgPrice;
-        const pnl = (currentPrice - h.avgPrice) * h.shares;
-        const pnlPercent = h.avgPrice ? ((currentPrice - h.avgPrice) / h.avgPrice * 100) : 0;
-        const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+    // Enrich with latest scan prices
+    const candidateLookup = {};
+    if (scanData?.candidates) {
+        for (const c of scanData.candidates) candidateLookup[c.symbol] = c;
+    }
 
-        return `<div class="holding-item">
-            <div class="holding-header">
-                <span class="holding-symbol">${h.symbol}</span>
-                <span class="holding-pnl ${pnlClass}">${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)} (${pnlPercent.toFixed(1)}%)</span>
+    list.innerHTML = holdings.map(h => {
+        const scan = candidateLookup[h.symbol];
+        const scanPrice = scan?.data?.price;
+        const currentPrice = scanPrice || h.currentPrice || h.avgPrice;
+        const changePercent = scan?.data?.changePercent;
+        const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : '';
+
+        return `<div class="sidebar-holding-compact">
+            <div class="compact-left">
+                <span class="compact-symbol">${h.symbol}</span>
+                <span class="compact-shares">${h.shares} shares</span>
             </div>
-            <div class="holding-details">
-                <span>${h.shares} shares @ ${formatCurrency(h.avgPrice)}</span>
-                ${h.thesis?.targets ? `<span class="holding-targets">SL: ${formatCurrency(h.thesis.targets.stopLoss)} | T1: ${formatCurrency(h.thesis.targets.target1)}</span>` : ''}
+            <div class="compact-right">
+                <span class="compact-price">${formatCurrency(currentPrice)}</span>
+                ${changePercent != null ? `<span class="compact-daily ${changeClass}">${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%</span>` : ''}
             </div>
         </div>`;
     }).join('');
@@ -388,7 +402,7 @@ function renderScorecard() {
                 return `<tr class="scorecard-row" onclick="toggleRowExpand(this, '${c.symbol}')">
                     <td><span class="watchlist-star ${isWatched ? 'active' : ''}" onclick="event.stopPropagation(); toggleWatchlist('${c.symbol}')">${isWatched ? '\u2605' : '\u2606'}</span></td>
                     <td class="scorecard-rank">${rank}</td>
-                    <td><span class="scorecard-symbol">${c.symbol}</span>${isHeld ? '<span class="scorecard-held-badge">HELD</span>' : ''}</td>
+                    <td><span class="scorecard-symbol">${c.symbol}</span>${isHeld ? '<span class="scorecard-held-badge">HELD</span>' : ''}${stockNames[c.symbol] ? `<div style="font-size:10px;color:var(--text-muted);margin-top:1px">${stockNames[c.symbol]}</div>` : ''}</td>
                     <td><div class="scorecard-score-cell"><div class="scorecard-bar"><div class="scorecard-bar-fill ${scoreClass}" style="width:${scorePct}%"></div></div><span class="scorecard-score-num ${scoreClass}">${c.compositeScore.toFixed(1)}</span></div></td>
                     <td class="${convClass}">${c.conviction}</td>
                     <td class="${dayClass}">${dayChange != null ? (dayChange >= 0 ? '+' : '') + dayChange.toFixed(2) + '%' : '--'}</td>
@@ -620,69 +634,115 @@ function renderRegimeBanner() {
     const banner = document.getElementById('regimeBanner');
     if (!banner || !scanData) return;
 
-    // Extract VIX from first candidate's data
-    const firstCandidate = scanData.candidates?.[0];
-    const vix = firstCandidate?.data?.vix;
+    // Get VIX from scan metadata
+    const vixData = scanData.vix;
+    const vixLevel = vixData ? vixData.level : null;
 
-    if (vix != null) {
+    if (vixLevel != null) {
         banner.style.display = '';
-        const regime = vix >= 30 ? 'bear' : vix >= 20 ? 'choppy' : 'bull';
-        const desc = vix >= 30
-            ? 'VIX elevated \u2014 favor defensive sectors, tighter stops, reduce position sizes'
-            : vix >= 20
-            ? 'VIX mixed \u2014 selective entries, standard position sizing'
-            : 'VIX calm \u2014 momentum strategies favored, trend following';
 
-        setText('regimeLabel', regime === 'bull' ? 'Low Volatility' : regime === 'choppy' ? 'Elevated Volatility' : 'High Volatility');
+        // Determine regime from VIX
+        const regime = vixLevel >= 30 ? 'bear' : vixLevel >= 25 ? 'choppy' : 'bull';
+        banner.className = `regime-banner ${regime}`;
+
+        const labelEl = document.getElementById('regimeLabel');
+        if (labelEl) labelEl.textContent = regime === 'bull' ? 'BULL MARKET' : regime === 'choppy' ? 'CHOPPY / MIXED' : 'BEAR MARKET';
+
+        // Tactical description
+        let desc = regime === 'bull'
+            ? 'Aggressive deployment \u2014 favor momentum, full sizing'
+            : regime === 'choppy'
+            ? 'Selective entries only \u2014 smaller positions'
+            : 'Defensive posture \u2014 preserve cash, tight stops';
         setText('regimeDescription', desc);
+        setText('regimeTimestamp', `Last scan: ${new Date(scanData.createdAt).toLocaleString()}`);
 
+        // VIX badge with change
         const vixEl = document.getElementById('regimeVIX');
         if (vixEl) {
-            vixEl.textContent = `VIX: ${vix.toFixed(1)}`;
-            vixEl.className = `regime-vix ${vix >= 30 ? 'vix-panic' : vix >= 20 ? 'vix-elevated' : vix >= 15 ? 'vix-normal' : 'vix-low'}`;
+            const change = vixData.change;
+            const sign = change >= 0 ? '+' : '';
+            vixEl.textContent = `VIX ${vixLevel.toFixed(1)}${change != null ? ` (${sign}${change.toFixed(2)})` : ''}`;
+            vixEl.className = 'regime-vix';
+            const interp = vixData.interpretation;
+            if (interp === 'complacent') vixEl.classList.add('vix-low');
+            else if (interp === 'normal') vixEl.classList.add('vix-normal');
+            else if (interp === 'elevated') vixEl.classList.add('vix-elevated');
+            else if (interp === 'panic') vixEl.classList.add('vix-panic');
         }
-
-        setText('regimeTimestamp', `Updated: ${new Date(scanData.createdAt).toLocaleTimeString()}`);
-        banner.className = `regime-banner ${regime}`;
     }
 }
 
 // ── Rendering: Sector Rotation ──
 function renderSectorRotation() {
     const container = document.getElementById('sectorRotationContent');
-    if (!container || !scanData?.candidates) return;
+    if (!container) return;
 
-    const sectors = {};
-    for (const c of scanData.candidates) {
-        const sec = c.sector || 'Other';
-        if (!sectors[sec]) sectors[sec] = { count: 0, totalConv: 0, totalScore: 0, high: 0 };
-        sectors[sec].count++;
-        sectors[sec].totalConv += c.conviction;
-        sectors[sec].totalScore += c.compositeScore;
-        if (c.conviction >= 7) sectors[sec].high++;
+    const rotationData = scanData?.sectorRotation;
+    if (!rotationData || typeof rotationData !== 'object') {
+        // Fallback: aggregate from candidates
+        if (!scanData?.candidates) return;
+        const sectors = {};
+        for (const c of scanData.candidates) {
+            const sec = c.sector || 'Other';
+            if (!sectors[sec]) sectors[sec] = { count: 0, totalConv: 0, high: 0 };
+            sectors[sec].count++;
+            sectors[sec].totalConv += c.conviction;
+            if (c.conviction >= 7) sectors[sec].high++;
+        }
+        const sorted = Object.entries(sectors).sort((a, b) => (b[1].totalConv / b[1].count) - (a[1].totalConv / a[1].count));
+        container.innerHTML = sorted.map(([name, data]) => {
+            const avgConv = (data.totalConv / data.count).toFixed(1);
+            return `<div class="rotation-card neutral">
+                <div class="rotation-card-header">
+                    <span class="rotation-card-name">${name}</span>
+                    <span class="rotation-flow-badge neutral">--</span>
+                </div>
+                <div class="rotation-stats">Avg Conv: ${avgConv} \u2022 ${data.high}/${data.count} high</div>
+            </div>`;
+        }).join('');
+        return;
     }
 
-    const sorted = Object.entries(sectors).sort((a, b) =>
-        (b[1].totalConv / b[1].count) - (a[1].totalConv / a[1].count)
-    );
+    // Sort: inflow first, then by 5d return
+    const flowOrder = { 'inflow': 0, 'modest-inflow': 1, 'neutral': 2, 'modest-outflow': 3, 'outflow': 4 };
+    const sectors = Object.entries(rotationData).sort((a, b) => {
+        const fa = flowOrder[a[1].moneyFlow] ?? 2;
+        const fb = flowOrder[b[1].moneyFlow] ?? 2;
+        if (fa !== fb) return fa - fb;
+        return (b[1].avgReturn5d || 0) - (a[1].avgReturn5d || 0);
+    });
 
-    if (sorted.length === 0) {
+    if (sectors.length === 0) {
         container.innerHTML = '<div class="empty-state">No sector data</div>';
         return;
     }
 
-    container.innerHTML = sorted.map(([name, data]) => {
-        const avgConv = (data.totalConv / data.count).toFixed(1);
-        const barColor = avgConv >= 7 ? 'var(--green)' : avgConv >= 5 ? 'var(--accent)' : 'var(--red)';
-        return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
-            <div style="min-width:140px;font-size:12px;font-weight:600;color:var(--text-primary)">${name}</div>
-            <div style="flex:1;height:6px;background:var(--bg-inset);border-radius:3px;overflow:hidden">
-                <div style="width:${Math.min(avgConv * 10, 100)}%;height:100%;background:${barColor};border-radius:3px"></div>
+    let html = '<div class="rotation-grid">';
+    for (const [name, s] of sectors) {
+        const flow = s.moneyFlow || 'neutral';
+        const flowClass = flow.includes('inflow') ? 'inflow' : flow.includes('outflow') ? 'outflow' : 'neutral';
+        const flowLabel = flow.replace(/-/g, ' ').toUpperCase();
+        const avg5d = s.avgReturn5d != null ? parseFloat(s.avgReturn5d).toFixed(2) : '--';
+        const avgToday = s.avgChange != null ? parseFloat(s.avgChange).toFixed(2) : '--';
+        const signal = s.rotationSignal || '--';
+
+        html += `<div class="rotation-card ${flowClass}">
+            <div class="rotation-card-header">
+                <span class="rotation-card-name">${name}</span>
+                <span class="rotation-flow-badge ${flowClass}">${flowLabel}</span>
             </div>
-            <div style="font-size:11px;color:var(--text-secondary);min-width:55px;text-align:right">Avg ${avgConv}</div>
-            <div style="font-size:11px;color:var(--text-faint);min-width:50px;text-align:right">${data.high}/${data.count} hi</div>
+            <div class="rotation-stats">
+                5d Avg: <span class="rotation-stat-value" style="color:${parseFloat(avg5d) >= 0 ? 'var(--green)' : 'var(--red)'}">${avg5d}%</span><br>
+                Today: <span class="rotation-stat-value" style="color:${parseFloat(avgToday) >= 0 ? 'var(--green)' : 'var(--red)'}">${avgToday}%</span><br>
+                Stocks: <span class="rotation-stat-value">${s.total || 0}</span> (${s.leaders5d || 0} up / ${s.laggards5d || 0} dn)<br>
+                Signal: <span class="rotation-stat-value">${signal}</span>
+            </div>
         </div>`;
-    }).join('');
+    }
+    html += '</div>';
+    html += `<div style="font-size:10px;color:var(--text-faint);margin-top:8px">Last updated: ${new Date(scanData.createdAt).toLocaleString()}</div>`;
+    container.innerHTML = html;
 }
 
 // ── Rendering: Sector Chart ──
@@ -1256,7 +1316,8 @@ async function init() {
         loadPerformance(),
         loadLearningInsights(),
         loadTrades(),
-        loadCalibration()
+        loadCalibration(),
+        loadStockNames()
     ]);
 
     setInterval(checkServerStatus, 30000);

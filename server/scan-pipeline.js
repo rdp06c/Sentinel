@@ -138,7 +138,7 @@ function buildScanFunctions(database, config) {
         }
 
         scores.sort((a, b) => b.compositeScore - a.compositeScore);
-        return scores;
+        return { scores, sectorRotation: sectorAnalysis, vix };
     }
 
     // ── checkBreakdowns: check structure breakdowns for holdings + watchlist ──

@@ -29,10 +29,14 @@ describe('scheduler', () => {
                 vix: { level: 18, trend: 'stable' }
             });
 
-            const mockScoreAll = (marketData, barsMap, vix) => [
-                { symbol: 'NVDA', compositeScore: 15.5, conviction: 9, sector: 'Technology', data: {} },
-                { symbol: 'AAPL', compositeScore: 12.0, conviction: 7, sector: 'Technology', data: {} }
-            ];
+            const mockScoreAll = (marketData, barsMap, vix) => ({
+                scores: [
+                    { symbol: 'NVDA', compositeScore: 15.5, conviction: 9, sector: 'Technology', data: {} },
+                    { symbol: 'AAPL', compositeScore: 12.0, conviction: 7, sector: 'Technology', data: {} }
+                ],
+                sectorRotation: {},
+                vix
+            });
 
             await runFullScan(db, {
                 fetchData: mockFetchData,
@@ -61,7 +65,7 @@ describe('scheduler', () => {
 
             await runFullScan(db, {
                 fetchData: mockFetchData,
-                scoreAll: () => [{ symbol: 'NVDA', compositeScore: 10, conviction: 7, sector: 'Tech', data: {} }],
+                scoreAll: (md, bm, vix) => ({ scores: [{ symbol: 'NVDA', compositeScore: 10, conviction: 7, sector: 'Tech', data: {} }], sectorRotation: {}, vix }),
                 universe: ['NVDA'],
                 notify: async () => {}
             });
@@ -77,7 +81,7 @@ describe('scheduler', () => {
 
             await runFullScan(db, {
                 fetchData: mockFetchData,
-                scoreAll: () => [],
+                scoreAll: () => ({ scores: [], sectorRotation: {}, vix: null }),
                 universe: [],
                 notify: async (type, data) => {
                     if (type === 'error') notifiedError = true;

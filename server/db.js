@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS scans (
     type TEXT NOT NULL CHECK (type IN ('full', 'holdings')),
     stock_count INTEGER NOT NULL DEFAULT 0,
     duration_ms INTEGER NOT NULL DEFAULT 0,
+    metadata TEXT DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -137,6 +138,12 @@ function initDB(dbPathOrInstance) {
 
     // Execute schema
     db.exec(SCHEMA);
+
+    // Migration: add metadata column to scans table if missing
+    const scanCols = db.prepare("PRAGMA table_info(scans)").all();
+    if (!scanCols.find(c => c.name === 'metadata')) {
+        db.exec("ALTER TABLE scans ADD COLUMN metadata TEXT DEFAULT '{}'");
+    }
 
     // Ensure default portfolio row exists
     const row = db.prepare('SELECT id FROM portfolio WHERE id = 1').get();
@@ -294,8 +301,8 @@ function getClosedTrades(db, options = {}) {
 // ── Scans ──
 
 function insertScan(db, scan) {
-    const result = db.prepare('INSERT INTO scans (type, stock_count, duration_ms) VALUES (?, ?, ?)').run(
-        scan.type, scan.stockCount || 0, scan.duration || 0
+    const result = db.prepare('INSERT INTO scans (type, stock_count, duration_ms, metadata) VALUES (?, ?, ?, ?)').run(
+        scan.type, scan.stockCount || 0, scan.duration || 0, JSON.stringify(scan.metadata || {})
     );
     return result.lastInsertRowid;
 }
@@ -315,12 +322,15 @@ function getLatestScan(db) {
     const scan = db.prepare('SELECT * FROM scans ORDER BY id DESC LIMIT 1').get();
     if (!scan) return null;
     const candidates = db.prepare('SELECT * FROM scan_candidates WHERE scan_id = ? ORDER BY composite_score DESC').all(scan.id);
+    const metadata = JSON.parse(scan.metadata || '{}');
     return {
         id: scan.id,
         type: scan.type,
         stockCount: scan.stock_count,
         durationMs: scan.duration_ms,
         createdAt: scan.created_at,
+        vix: metadata.vix || null,
+        sectorRotation: metadata.sectorRotation || null,
         candidates: candidates.map(c => ({
             symbol: c.symbol,
             compositeScore: c.composite_score,
@@ -334,6 +344,7 @@ function getLatestScan(db) {
 function getScanById(db, id) {
     const scan = db.prepare('SELECT * FROM scans WHERE id = ?').get(id);
     if (!scan) return null;
+    const metadata = JSON.parse(scan.metadata || '{}');
     const candidates = db.prepare('SELECT * FROM scan_candidates WHERE scan_id = ? ORDER BY composite_score DESC').all(id);
     return {
         id: scan.id,
@@ -341,6 +352,8 @@ function getScanById(db, id) {
         stockCount: scan.stock_count,
         durationMs: scan.duration_ms,
         createdAt: scan.created_at,
+        vix: metadata.vix || null,
+        sectorRotation: metadata.sectorRotation || null,
         candidates: candidates.map(c => ({
             symbol: c.symbol,
             compositeScore: c.composite_score,

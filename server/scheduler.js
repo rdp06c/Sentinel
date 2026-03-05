@@ -28,13 +28,19 @@ async function runFullScan(database, opts) {
             const data = await fetchData();
 
             // 2. Score all stocks
-            const scored = scoreAll(data.marketData, data.barsMap, data.vix);
+            const result = scoreAll(data.marketData, data.barsMap, data.vix);
+            const scored = result.scores;
 
-            // 3. Store in database
+            // 3. Store in database (include VIX + sector rotation as metadata)
+            const metadata = {
+                vix: result.vix || null,
+                sectorRotation: result.sectorRotation || null
+            };
             const scanId = db.insertScan(database, {
                 type: 'full',
                 stockCount: scored.length,
-                duration: Date.now() - startTime
+                duration: Date.now() - startTime,
+                metadata
             });
 
             db.insertScanCandidates(database, scanId, scored);

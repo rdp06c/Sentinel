@@ -2,6 +2,7 @@
 
 const express = require('express');
 const db = require('./db');
+const { stockNames } = require('../core/data');
 
 function createApp(database, apiSecret, opts = {}) {
     const { scanFns, config: appConfig, runFullScan } = opts;
@@ -190,6 +191,11 @@ function createApp(database, apiSecret, opts = {}) {
     app.get('/api/stock/:symbol/history', (req, res) => {
         const history = db.getStockHistory(database, req.params.symbol);
         res.json(history);
+    });
+
+    // ── Stock Names (for dashboard display) ──
+    app.get('/api/stock-names', (req, res) => {
+        res.json(stockNames);
     });
 
     // ── Chat (Anthropic proxy) ──
