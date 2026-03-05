@@ -8,6 +8,15 @@ function createApp(database, apiSecret, opts = {}) {
     const app = express();
     app.use(express.json());
 
+    // ── CORS: allow browser requests with custom X-API-Key header ──
+    app.use((req, res, next) => {
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        if (req.method === 'OPTIONS') return res.sendStatus(204);
+        next();
+    });
+
     // ── Auth middleware ──
     app.use('/api', (req, res, next) => {
         const key = req.headers['x-api-key'];

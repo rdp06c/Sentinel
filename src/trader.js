@@ -58,9 +58,9 @@ async function checkServerStatus() {
         if (dot) { dot.className = 'dot connected'; }
         if (text) { text.textContent = 'Connected'; }
         return health;
-    } catch {
+    } catch (e) {
         if (dot) { dot.className = 'dot disconnected'; }
-        if (text) { text.textContent = 'Disconnected'; }
+        if (text) { text.textContent = e.message === 'Unauthorized' ? 'Invalid API key' : 'Disconnected'; }
         return null;
     }
 }
