@@ -30,21 +30,28 @@ function migrateFromJSON(database, jsonData) {
     // 2. Holdings
     let holdingsCount = 0;
     if (data.holdings && typeof data.holdings === 'object') {
+        // Look up theses from holdingTheses if available
+        const theses = data.holdingTheses || {};
         for (const [symbol, holding] of Object.entries(data.holdings)) {
-            if (!holding.shares || holding.shares <= 0) continue;
+            // Legacy format: { symbol: shares } (number) or { symbol: { shares, ... } } (object)
+            const isSimple = typeof holding === 'number';
+            const shares = isSimple ? holding : (holding.shares || 0);
+            if (!shares || shares <= 0) continue;
+
+            const thesis = theses[symbol] || (isSimple ? {} : (holding.thesis || {}));
             try {
                 // Use direct insert to preserve entry dates
                 database.prepare(`INSERT OR REPLACE INTO holdings
                     (symbol, shares, avg_price, entry_date, conviction, notes, thesis, entry_technicals)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
                     symbol,
-                    holding.shares,
-                    holding.averagePrice || holding.avgPrice || holding.price || 0,
-                    holding.entryDate || holding.buyDate || new Date().toISOString(),
-                    holding.conviction || holding.entryConviction || null,
-                    holding.notes || null,
-                    JSON.stringify(holding.thesis || {}),
-                    JSON.stringify(holding.entryTechnicals || holding.entry_technicals || {})
+                    shares,
+                    isSimple ? (thesis.averagePrice || thesis.entryPrice || 0) : (holding.averagePrice || holding.avgPrice || holding.price || 0),
+                    isSimple ? (thesis.entryDate || new Date().toISOString()) : (holding.entryDate || holding.buyDate || new Date().toISOString()),
+                    isSimple ? (thesis.conviction || null) : (holding.conviction || holding.entryConviction || null),
+                    isSimple ? null : (holding.notes || null),
+                    JSON.stringify(thesis),
+                    JSON.stringify(isSimple ? (thesis.entryTechnicals || {}) : (holding.entryTechnicals || holding.entry_technicals || {}))
                 );
                 holdingsCount++;
             } catch (e) {
