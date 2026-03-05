@@ -29,6 +29,7 @@ function getActiveWeights(calibratedWeights, vixLevel) {
 }
 
 // Composite scoring: ~20 weighted components producing a total score + breakdown.
+// rsNormalized: 0-10 scale (RS percentile / 10). Multiplied by 0.6 internally for 0-6 contribution.
 // params: { momentumScore, rsNormalized, sectorFlow, structureScore, isAccelerating,
 //           upDays, totalDays, todayChange, totalReturn5d, rsi, macdCrossover,
 //           daysToCover, volumeTrend, fvg, signalAdjustments, sma20, currentPrice,
@@ -36,156 +37,150 @@ function getActiveWeights(calibratedWeights, vixLevel) {
 // weights: active weight object (from getActiveWeights)
 function calculateCompositeScore(params, weights) {
     const w = weights || DEFAULT_WEIGHTS;
-    const breakdown = {};
-    let total = 0;
 
-    // --- Momentum component ---
     const momentumScore = params.momentumScore || 0;
-    const momentumComponent = (momentumScore - 5) * w.momentumMultiplier;
-    breakdown.momentum = Math.round(momentumComponent * 100) / 100;
-    total += momentumComponent;
-
-    // --- Relative strength component ---
-    const rsNormalized = params.rsNormalized || 50;
-    const rsComponent = (rsNormalized - 50) / 10 * w.rsMultiplier;
-    breakdown.relativeStrength = Math.round(rsComponent * 100) / 100;
-    total += rsComponent;
-
-    // --- Structure component ---
+    const rsNormalized = params.rsNormalized || 5;
     const structureScore = params.structureScore || 0;
-    const structureComponent = structureScore * w.structureMultiplier;
-    breakdown.structure = Math.round(structureComponent * 100) / 100;
-    total += structureComponent;
+    const sectorFlow = params.sectorFlow || 'neutral';
+    const todayChange = params.todayChange || 0;
+    const ret5d = params.totalReturn5d ?? 0;
+    const rsi = params.rsi;
+    const macdCrossover = params.macdCrossover || 'none';
+    const vt = params.volumeTrend ?? 1;
 
-    // --- Acceleration bonus ---
-    let accelComponent = 0;
-    if (params.isAccelerating && momentumScore > 5) {
-        accelComponent = w.accelBonus;
-    }
-    breakdown.acceleration = Math.round(accelComponent * 100) / 100;
-    total += accelComponent;
+    // --- Core components (no centering — raw multiplication) ---
+    const momentumContrib = momentumScore * w.momentumMultiplier;
+    const rsContrib = rsNormalized * w.rsMultiplier;
+    const structureBonus = (structureScore || 0) * w.structureMultiplier;
 
-    // --- Consistency bonus ---
-    let consistencyComponent = 0;
+    // --- Sector flow ---
+    let sectorBonus = 0;
+    if (sectorFlow === 'inflow') sectorBonus = w.sectorInflow;
+    else if (sectorFlow === 'modest-inflow') sectorBonus = w.sectorModestInflow;
+    else if (sectorFlow === 'outflow') sectorBonus = w.sectorOutflow;
+
+    // --- Acceleration bonus (requires momentum >= 6) ---
+    const accelBonus = (params.isAccelerating && momentumScore >= 6) ? w.accelBonus : 0;
+
+    // --- Consistency bonus (positive only — upDays >= 3 out of >= 4 total) ---
     const upDays = params.upDays || 0;
     const totalDays = params.totalDays || 1;
-    const upRatio = upDays / totalDays;
-    if (upRatio >= 0.8) {
-        consistencyComponent = w.consistencyBonus;
-    } else if (upRatio <= 0.2) {
-        consistencyComponent = -w.consistencyBonus;
-    }
-    breakdown.consistency = Math.round(consistencyComponent * 100) / 100;
-    total += consistencyComponent;
+    const consistencyBonus = (upDays >= 3 && totalDays >= 4) ? w.consistencyBonus : 0;
 
-    // --- Sector flow component ---
-    let sectorComponent = 0;
-    const sectorFlow = params.sectorFlow || 'neutral';
-    if (sectorFlow === 'inflow') sectorComponent = w.sectorInflow;
-    else if (sectorFlow === 'modest-inflow') sectorComponent = w.sectorModestInflow;
-    else if (sectorFlow === 'outflow') sectorComponent = w.sectorOutflow;
-    breakdown.sectorFlow = Math.round(sectorComponent * 100) / 100;
-    total += sectorComponent;
+    // --- Runner penalty (today's intraday move too extended) ---
+    const runnerPenalty = todayChange >= 15 ? -3
+        : todayChange >= 10 ? -2
+        : todayChange >= 7 ? -1
+        : todayChange >= 5 ? -0.5
+        : 0;
+
+    // Decline penalty removed: calibration data showed it was anti-predictive
+    const declinePenalty = 0;
+
+    // --- Extension penalty (momentum + RS both too high = mean reversion risk) ---
+    const extensionPenalty = (momentumScore >= 9 && rsNormalized >= 8.5) ? -5
+        : (momentumScore >= 9 || rsNormalized >= 8.5) ? -3.5
+        : (momentumScore >= 8 || rsNormalized >= 8) ? -2
+        : (momentumScore >= 7.5 || rsNormalized >= 7.5) ? -1
+        : 0;
+
+    // --- Pullback bonus (5-tier: dip in strong structure = buying opportunity) ---
+    const pullbackBonus =
+        (ret5d >= -8 && ret5d <= -2 && (structureScore ?? 0) >= 2 && sectorFlow !== 'outflow') ? 5
+        : (ret5d >= -8 && ret5d <= -2 && (structureScore ?? 0) >= 1 && sectorFlow !== 'outflow' && sectorFlow !== 'modest-outflow') ? 4
+        : (ret5d >= -5 && ret5d < 0 && (structureScore ?? 0) >= 1 && sectorFlow !== 'outflow') ? 3
+        : (ret5d >= -8 && ret5d <= -2 && (structureScore ?? 0) >= 0) ? 2
+        : (ret5d >= -5 && ret5d < 0 && (structureScore ?? 0) >= 0 && sectorFlow !== 'outflow') ? 1
+        : 0;
 
     // --- RSI component ---
-    let rsiComponent = 0;
-    const rsi = params.rsi;
-    if (rsi != null) {
-        if (rsi < 30) rsiComponent = w.rsiOversold30;
-        else if (rsi < 40) rsiComponent = w.rsiOversold40;
-        else if (rsi < 50) rsiComponent = w.rsiOversold50;
-        else if (rsi > 80) rsiComponent = w.rsiOverbought80;
-        else if (rsi > 70) rsiComponent = w.rsiOverbought70;
-    }
-    breakdown.rsi = Math.round(rsiComponent * 100) / 100;
-    total += rsiComponent;
+    const rsiBonusPenalty = rsi != null
+        ? (rsi < 30 ? w.rsiOversold30 : rsi < 40 ? w.rsiOversold40 : rsi < 50 ? w.rsiOversold50
+            : rsi > 80 ? w.rsiOverbought80 : rsi > 70 ? w.rsiOverbought70 : 0)
+        : 0;
 
-    // --- MACD crossover component ---
-    let macdComponent = 0;
-    const macdCrossover = params.macdCrossover || 'none';
-    if (macdCrossover === 'bullish') macdComponent = w.macdBullish;
-    else if (macdCrossover === 'bearish') macdComponent = w.macdBearish;
-    else macdComponent = w.macdNone;
-    breakdown.macd = Math.round(macdComponent * 100) / 100;
-    total += macdComponent;
+    // --- MACD crossover ---
+    const macdBonus = macdCrossover === 'bullish' ? w.macdBullish
+        : macdCrossover === 'bearish' ? w.macdBearish
+        : w.macdNone;
 
-    // --- RS mean reversion penalty ---
-    let rsMeanRevComponent = 0;
-    if (rsNormalized > 95) rsMeanRevComponent = w.rsMeanRev95;
-    else if (rsNormalized > 90) rsMeanRevComponent = w.rsMeanRev90;
-    else if (rsNormalized > 85) rsMeanRevComponent = w.rsMeanRev85;
-    breakdown.rsMeanReversion = Math.round(rsMeanRevComponent * 100) / 100;
-    total += rsMeanRevComponent;
+    // --- RS mean reversion penalty (0-10 scale thresholds) ---
+    const rsMeanRevPenalty = rsNormalized >= 9.5 ? w.rsMeanRev95
+        : rsNormalized >= 9 ? w.rsMeanRev90
+        : rsNormalized >= 8.5 ? w.rsMeanRev85
+        : 0;
 
-    // --- Short squeeze bonus ---
-    let squeezeComponent = 0;
-    const daysToCover = params.daysToCover || 0;
-    const volumeTrend = params.volumeTrend || 1;
-    if (daysToCover > 5 && volumeTrend > 1.5) squeezeComponent = w.squeezeBonusHigh;
-    else if (daysToCover > 3 && volumeTrend > 1.2) squeezeComponent = w.squeezeBonusMod;
-    breakdown.shortSqueeze = Math.round(squeezeComponent * 100) / 100;
-    total += squeezeComponent;
+    // --- Short squeeze bonus (requires structure support) ---
+    const dtc = params.daysToCover || 0;
+    const squeezeBonus = (dtc > 5 && (structureScore ?? 0) >= 1 && sectorFlow !== 'outflow') ? w.squeezeBonusHigh
+        : (dtc > 3 && (structureScore ?? 0) >= 1) ? w.squeezeBonusMod
+        : 0;
 
-    // --- SMA proximity component ---
-    let smaProxComponent = 0;
+    // --- Volume bonus (momentum + volume confirmation) ---
+    const volumeBonus = (momentumScore >= 7 && vt < 0.7) ? -2.0
+        : (momentumScore >= 7 && vt > 1.3) ? 1.0
+        : (momentumScore < 5 && vt > 1.5 && (structureScore ?? 0) >= 0) ? 1.5
+        : (vt > 1.2 ? 0.5 : vt < 0.8 ? -0.5 : 0);
+
+    // --- FVG bonus (conditional on pullback for bullish, weak structure for bearish) ---
+    const fvg = params.fvg;
+    const fvgBonus = (fvg === 'bullish' && ret5d < 0 && (structureScore ?? 0) >= 0) ? w.fvgBullish
+        : (fvg === 'bearish' && (structureScore ?? 0) < 0) ? w.fvgBearish
+        : 0;
+
+    // --- SMA proximity (requires structure support for positive bonuses) ---
+    let smaProximityBonus = 0;
     const sma20 = params.sma20;
     const currentPrice = params.currentPrice;
-    if (sma20 && currentPrice && sma20 > 0) {
-        const smaDistance = ((currentPrice - sma20) / sma20) * 100;
-        if (smaDistance >= 0 && smaDistance <= 3) smaProxComponent = w.smaProxNear;
-        else if (smaDistance < 0 && smaDistance >= -3) smaProxComponent = w.smaProxBelow;
-        else if (smaDistance > 15) smaProxComponent = w.smaProxFar15;
-        else if (smaDistance > 10) smaProxComponent = w.smaProxFar10;
+    if (sma20 != null && currentPrice != null && sma20 > 0) {
+        const pctFromSMA20 = ((currentPrice - sma20) / sma20) * 100;
+        if (pctFromSMA20 >= 0 && pctFromSMA20 <= 3 && (structureScore ?? 0) >= 1) smaProximityBonus = w.smaProxNear;
+        else if (pctFromSMA20 < 0 && pctFromSMA20 >= -3 && (structureScore ?? 0) >= 1) smaProximityBonus = w.smaProxBelow;
+        else if (pctFromSMA20 > 15) smaProximityBonus = w.smaProxFar15;
+        else if (pctFromSMA20 > 10) smaProximityBonus = w.smaProxFar10;
     }
-    breakdown.smaProximity = Math.round(smaProxComponent * 100) / 100;
-    total += smaProxComponent;
 
-    // --- SMA crossover component ---
-    let smaCrossComponent = 0;
+    // --- SMA crossover ---
     const smaCrossover = params.smaCrossover || 'none';
-    if (smaCrossover === 'bullish') smaCrossComponent = w.smaCrossoverBullish;
-    else if (smaCrossover === 'bearish') smaCrossComponent = w.smaCrossoverBearish;
-    breakdown.smaCrossover = Math.round(smaCrossComponent * 100) / 100;
-    total += smaCrossComponent;
+    const smaCrossoverBonus = smaCrossover === 'bullish' ? w.smaCrossoverBullish
+        : smaCrossover === 'bearish' ? w.smaCrossoverBearish
+        : 0;
 
-    // --- FVG component ---
-    let fvgComponent = 0;
-    const fvg = params.fvg;
-    if (fvg) {
-        if (fvg === 'bullish') fvgComponent = w.fvgBullish;
-        else if (fvg === 'bearish') fvgComponent = w.fvgBearish;
+    // --- Learning-based signal adjustments (suppressed when fresh calibration exists) ---
+    let learnedAdj = 0;
+    const signalAdjustments = params.signalAdjustments;
+    if (signalAdjustments && typeof signalAdjustments === 'object' && !params.calFresh) {
+        if (rsi > 70 && signalAdjustments.overboughtRsiExtraPenalty) learnedAdj += signalAdjustments.overboughtRsiExtraPenalty;
+        if (macdCrossover === 'bullish' && signalAdjustments.bullishMacdExtraBonus) learnedAdj += signalAdjustments.bullishMacdExtraBonus;
+        if ((structureScore ?? 0) < 0 && signalAdjustments.bearishStructureExtraPenalty) learnedAdj += signalAdjustments.bearishStructureExtraPenalty;
+        if (todayChange >= 5 && signalAdjustments.runnerExtraPenalty) learnedAdj += signalAdjustments.runnerExtraPenalty;
     }
-    breakdown.fvg = Math.round(fvgComponent * 100) / 100;
-    total += fvgComponent;
 
-    // --- Entry timing multiplier (extension penalty / pullback bonus) ---
+    // --- Sum all additive components ---
+    const additiveScore = momentumContrib + rsContrib + sectorBonus + accelBonus + consistencyBonus
+        + structureBonus + extensionPenalty + pullbackBonus + runnerPenalty + declinePenalty
+        + rsiBonusPenalty + macdBonus + rsMeanRevPenalty + squeezeBonus + volumeBonus + fvgBonus
+        + smaProximityBonus + smaCrossoverBonus + learnedAdj;
+
+    // --- Entry timing multiplier (applied to positive scores only) ---
     let entryMultiplier = 1.0;
-    const totalReturn5d = params.totalReturn5d || 0;
-    if (totalReturn5d > 15) entryMultiplier = w.entryMultExtreme;
-    else if (totalReturn5d > 8) entryMultiplier = w.entryMultExtended;
-    else if (totalReturn5d < -3 && totalReturn5d > -10) entryMultiplier = w.entryMultPullback;
-    breakdown.entryMultiplier = entryMultiplier;
-
-    // Apply entry multiplier to total (only when not 1.0)
-    if (entryMultiplier !== 1.0 && total > 0) {
-        const preMult = total;
-        total = total * entryMultiplier;
-        breakdown.entryAdjustment = Math.round((total - preMult) * 100) / 100;
-    } else {
-        breakdown.entryAdjustment = 0;
+    if (additiveScore > 0) {
+        if (rsi != null && rsi > 80 && momentumScore >= 9) entryMultiplier = w.entryMultExtreme;
+        else if ((rsi != null && rsi > 70) || momentumScore >= 9 || rsNormalized >= 9) entryMultiplier = w.entryMultExtended;
+        else if (ret5d >= -8 && ret5d <= -1 && (structureScore ?? 0) >= 1) entryMultiplier = w.entryMultPullback;
     }
 
-    // --- Signal adjustments from learning system ---
-    let signalAdj = 0;
-    if (params.signalAdjustments && params.calFresh) {
-        signalAdj = params.signalAdjustments;
-    }
-    breakdown.signalAdjustment = Math.round(signalAdj * 100) / 100;
-    total += signalAdj;
+    const compositeScore = Math.round(additiveScore * entryMultiplier * 100) / 100;
 
-    total = Math.round(total * 100) / 100;
-
-    return { total, breakdown };
+    return {
+        total: compositeScore,
+        breakdown: {
+            momentumContrib, rsContrib, sectorBonus, accelBonus, consistencyBonus,
+            structureBonus, extensionPenalty, pullbackBonus, runnerPenalty, declinePenalty,
+            rsiBonusPenalty, macdBonus, rsMeanRevPenalty, squeezeBonus, volumeBonus, fvgBonus,
+            smaProximityBonus, smaCrossoverBonus, learnedAdj, entryMultiplier
+        }
+    };
 }
 
 // Percentile ranking + absolute floor -> conviction 1-10.
@@ -203,7 +198,6 @@ function deriveConvictionRating(scores) {
 
     // Assign percentile rank (0-100) — rank 0 = lowest, 100 = highest
     for (let i = 0; i < n; i++) {
-        // Percentile: position from top. Index 0 = top = 100th percentile
         sorted[i].percentile = ((n - 1 - i) / (n - 1 || 1)) * 100;
     }
 
@@ -225,8 +219,6 @@ function deriveConvictionRating(scores) {
     const threshold = Math.ceil(n * 0.2);
     const lowCount = sorted.filter(s => s.conviction <= 3).length;
     if (lowCount < threshold) {
-        // Demote lowest-ranked stocks that have conviction > 3
-        // Walk from bottom of sorted (lowest scores) upward
         let demoted = lowCount;
         for (let i = n - 1; i >= 0 && demoted < threshold; i--) {
             if (sorted[i].conviction > 3) {

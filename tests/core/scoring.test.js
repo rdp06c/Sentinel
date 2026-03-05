@@ -92,9 +92,10 @@ describe('getActiveWeights', () => {
 });
 
 describe('calculateCompositeScore', () => {
-    // Neutral baseline params — everything at zero/neutral
+    // Neutral baseline params — everything at midpoint/neutral
+    // rsNormalized on 0-10 scale (matching old APEX convention)
     const neutralParams = {
-        momentumScore: 5, rsNormalized: 50, sectorFlow: 'neutral',
+        momentumScore: 5, rsNormalized: 5, sectorFlow: 'neutral',
         structureScore: 0, isAccelerating: false, upDays: 2, totalDays: 4,
         todayChange: 0, totalReturn5d: 0, rsi: 55, macdCrossover: 'none',
         daysToCover: 0, volumeTrend: 1, fvg: null, signalAdjustments: 0,
@@ -112,21 +113,33 @@ describe('calculateCompositeScore', () => {
     it('breakdown contains all expected components', () => {
         const result = calculateCompositeScore(neutralParams, DEFAULT_WEIGHTS);
         const expectedComponents = [
-            'momentum', 'relativeStrength', 'structure', 'acceleration',
-            'consistency', 'sectorFlow', 'rsi', 'macd', 'rsMeanReversion',
-            'shortSqueeze', 'smaProximity', 'smaCrossover', 'fvg',
-            'entryMultiplier', 'entryAdjustment', 'signalAdjustment'
+            'momentumContrib', 'rsContrib', 'sectorBonus', 'accelBonus', 'consistencyBonus',
+            'structureBonus', 'extensionPenalty', 'pullbackBonus', 'runnerPenalty', 'declinePenalty',
+            'rsiBonusPenalty', 'macdBonus', 'rsMeanRevPenalty', 'squeezeBonus', 'volumeBonus',
+            'fvgBonus', 'smaProximityBonus', 'smaCrossoverBonus', 'learnedAdj', 'entryMultiplier'
         ];
         for (const key of expectedComponents) {
             assert.ok(key in result.breakdown, `Missing breakdown component: ${key}`);
         }
     });
 
+    it('momentum contribution uses raw multiplication (no centering)', () => {
+        const result = calculateCompositeScore({ ...neutralParams, momentumScore: 8 }, DEFAULT_WEIGHTS);
+        // 8 * 0.6 = 4.8 (not (8-5)*0.6 = 1.8)
+        assert.equal(result.breakdown.momentumContrib, 8 * DEFAULT_WEIGHTS.momentumMultiplier);
+    });
+
+    it('RS contribution uses raw multiplication on 0-10 scale', () => {
+        const result = calculateCompositeScore({ ...neutralParams, rsNormalized: 7 }, DEFAULT_WEIGHTS);
+        // 7 * 0.6 = 4.2 (not (7-5)/10*0.6)
+        assert.equal(result.breakdown.rsContrib, 7 * DEFAULT_WEIGHTS.rsMultiplier);
+    });
+
     it('with all-positive inputs gives positive score', () => {
         const bullishParams = {
-            momentumScore: 8, rsNormalized: 70, sectorFlow: 'inflow',
+            momentumScore: 8, rsNormalized: 7, sectorFlow: 'inflow',
             structureScore: 3, isAccelerating: true, upDays: 4, totalDays: 4,
-            todayChange: 2, totalReturn5d: 4, rsi: 35, macdCrossover: 'bullish',
+            todayChange: 2, totalReturn5d: -3, rsi: 35, macdCrossover: 'bullish',
             daysToCover: 6, volumeTrend: 2, fvg: 'bullish', signalAdjustments: 0,
             sma20: 100, currentPrice: 101, smaCrossover: 'bullish', calFresh: false
         };
@@ -136,7 +149,7 @@ describe('calculateCompositeScore', () => {
 
     it('with all-bearish inputs gives negative score', () => {
         const bearishParams = {
-            momentumScore: 2, rsNormalized: 30, sectorFlow: 'outflow',
+            momentumScore: 2, rsNormalized: 3, sectorFlow: 'outflow',
             structureScore: -2, isAccelerating: false, upDays: 0, totalDays: 4,
             todayChange: -3, totalReturn5d: -5, rsi: 82, macdCrossover: 'bearish',
             daysToCover: 0, volumeTrend: 0.5, fvg: 'bearish', signalAdjustments: 0,
@@ -146,46 +159,110 @@ describe('calculateCompositeScore', () => {
         assert.ok(result.total < 0, `Expected negative total, got ${result.total}`);
     });
 
-    it('extension penalty applies for extreme momentum (totalReturn5d > 15)', () => {
-        const extendedParams = {
-            ...neutralParams,
-            momentumScore: 9, totalReturn5d: 20, structureScore: 2
-        };
-        const normalParams = {
-            ...neutralParams,
-            momentumScore: 9, totalReturn5d: 4, structureScore: 2
-        };
-        const extendedResult = calculateCompositeScore(extendedParams, DEFAULT_WEIGHTS);
+    it('extension penalty applies for high momentum + RS', () => {
+        // Both momentum >= 9 AND rsNormalized >= 8.5 → -5 penalty
+        const extremeParams = { ...neutralParams, momentumScore: 9, rsNormalized: 9 };
+        const normalParams = { ...neutralParams, momentumScore: 6, rsNormalized: 6 };
+        const extremeResult = calculateCompositeScore(extremeParams, DEFAULT_WEIGHTS);
         const normalResult = calculateCompositeScore(normalParams, DEFAULT_WEIGHTS);
-        assert.ok(extendedResult.total < normalResult.total,
-            `Extended score (${extendedResult.total}) should be less than normal (${normalResult.total})`);
-        assert.equal(extendedResult.breakdown.entryMultiplier, DEFAULT_WEIGHTS.entryMultExtreme);
+        assert.equal(extremeResult.breakdown.extensionPenalty, -5);
+        assert.equal(normalResult.breakdown.extensionPenalty, 0);
     });
 
-    it('pullback bonus applies for mild pullback (-3 to -10 return)', () => {
+    it('pullback bonus applies for dip in strong structure', () => {
+        // ret5d in [-8,-2], structureScore >= 2, not outflow → +5
         const pullbackParams = {
             ...neutralParams,
-            momentumScore: 7, totalReturn5d: -5, structureScore: 2
+            momentumScore: 7, totalReturn5d: -4, structureScore: 2, sectorFlow: 'inflow'
+        };
+        const result = calculateCompositeScore(pullbackParams, DEFAULT_WEIGHTS);
+        assert.equal(result.breakdown.pullbackBonus, 5);
+    });
+
+    it('runner penalty applies for large intraday moves', () => {
+        const runnerParams = { ...neutralParams, todayChange: 12 };
+        const result = calculateCompositeScore(runnerParams, DEFAULT_WEIGHTS);
+        assert.equal(result.breakdown.runnerPenalty, -2);
+    });
+
+    it('volume bonus rewards high volume on weak momentum stocks', () => {
+        // momentumScore < 5, volumeTrend > 1.5, structureScore >= 0 → +1.5
+        const volParams = { ...neutralParams, momentumScore: 3, volumeTrend: 2.0 };
+        const result = calculateCompositeScore(volParams, DEFAULT_WEIGHTS);
+        assert.equal(result.breakdown.volumeBonus, 1.5);
+    });
+
+    it('entry multiplier extreme requires RSI > 80 AND momentum >= 9', () => {
+        const extremeParams = {
+            ...neutralParams, momentumScore: 9, rsi: 85, structureScore: 2
+        };
+        const result = calculateCompositeScore(extremeParams, DEFAULT_WEIGHTS);
+        assert.equal(result.breakdown.entryMultiplier, DEFAULT_WEIGHTS.entryMultExtreme);
+    });
+
+    it('entry multiplier extended triggers on high momentum alone', () => {
+        const extendedParams = {
+            ...neutralParams, momentumScore: 9, rsi: 55, structureScore: 2
+        };
+        const result = calculateCompositeScore(extendedParams, DEFAULT_WEIGHTS);
+        assert.equal(result.breakdown.entryMultiplier, DEFAULT_WEIGHTS.entryMultExtended);
+    });
+
+    it('entry multiplier pullback triggers on mild 5d dip with structure', () => {
+        const pullbackParams = {
+            ...neutralParams, momentumScore: 5, totalReturn5d: -4, structureScore: 2
         };
         const result = calculateCompositeScore(pullbackParams, DEFAULT_WEIGHTS);
         assert.equal(result.breakdown.entryMultiplier, DEFAULT_WEIGHTS.entryMultPullback);
+    });
+
+    it('consistency bonus only positive (upDays >= 3, totalDays >= 4)', () => {
+        const goodConsistency = { ...neutralParams, upDays: 4, totalDays: 5 };
+        const badConsistency = { ...neutralParams, upDays: 0, totalDays: 5 };
+        const goodResult = calculateCompositeScore(goodConsistency, DEFAULT_WEIGHTS);
+        const badResult = calculateCompositeScore(badConsistency, DEFAULT_WEIGHTS);
+        assert.equal(goodResult.breakdown.consistencyBonus, DEFAULT_WEIGHTS.consistencyBonus);
+        assert.equal(badResult.breakdown.consistencyBonus, 0); // No negative penalty
+    });
+
+    it('SMA proximity bonus requires structureScore >= 1', () => {
+        // Price near SMA20 but weak structure → no bonus
+        const noStructure = { ...neutralParams, structureScore: 0, sma20: 100, currentPrice: 101 };
+        const withStructure = { ...neutralParams, structureScore: 2, sma20: 100, currentPrice: 101 };
+        assert.equal(calculateCompositeScore(noStructure, DEFAULT_WEIGHTS).breakdown.smaProximityBonus, 0);
+        assert.equal(calculateCompositeScore(withStructure, DEFAULT_WEIGHTS).breakdown.smaProximityBonus, DEFAULT_WEIGHTS.smaProxNear);
+    });
+
+    it('squeeze bonus requires structureScore >= 1', () => {
+        const noStructure = { ...neutralParams, daysToCover: 6, structureScore: 0 };
+        const withStructure = { ...neutralParams, daysToCover: 6, structureScore: 1, sectorFlow: 'neutral' };
+        assert.equal(calculateCompositeScore(noStructure, DEFAULT_WEIGHTS).breakdown.squeezeBonus, 0);
+        assert.equal(calculateCompositeScore(withStructure, DEFAULT_WEIGHTS).breakdown.squeezeBonus, DEFAULT_WEIGHTS.squeezeBonusHigh);
+    });
+
+    it('FVG bullish bonus requires ret5d < 0', () => {
+        const withPullback = { ...neutralParams, fvg: 'bullish', totalReturn5d: -2 };
+        const noPullback = { ...neutralParams, fvg: 'bullish', totalReturn5d: 3 };
+        assert.equal(calculateCompositeScore(withPullback, DEFAULT_WEIGHTS).breakdown.fvgBonus, DEFAULT_WEIGHTS.fvgBullish);
+        assert.equal(calculateCompositeScore(noPullback, DEFAULT_WEIGHTS).breakdown.fvgBonus, 0);
+    });
+
+    it('signal adjustments apply when calFresh is false (not true)', () => {
+        const signalAdj = { overboughtRsiExtraPenalty: -2, bullishMacdExtraBonus: 1.5 };
+        const withFresh = { ...neutralParams, rsi: 75, signalAdjustments: signalAdj, calFresh: true };
+        const withStale = { ...neutralParams, rsi: 75, signalAdjustments: signalAdj, calFresh: false };
+        const freshResult = calculateCompositeScore(withFresh, DEFAULT_WEIGHTS);
+        const staleResult = calculateCompositeScore(withStale, DEFAULT_WEIGHTS);
+        // Signal adj should be suppressed when calFresh=true
+        assert.equal(freshResult.breakdown.learnedAdj, 0);
+        // Signal adj should apply when calFresh=false (rsi>70 triggers overboughtRsiExtraPenalty)
+        assert.equal(staleResult.breakdown.learnedAdj, -2);
     });
 
     it('uses DEFAULT_WEIGHTS when weights param is null', () => {
         const result = calculateCompositeScore(neutralParams, null);
         assert.ok('total' in result);
         assert.equal(typeof result.total, 'number');
-    });
-
-    it('signal adjustments only apply when calFresh is true', () => {
-        const withSignal = { ...neutralParams, signalAdjustments: 3, calFresh: true };
-        const withoutFresh = { ...neutralParams, signalAdjustments: 3, calFresh: false };
-        const freshResult = calculateCompositeScore(withSignal, DEFAULT_WEIGHTS);
-        const staleResult = calculateCompositeScore(withoutFresh, DEFAULT_WEIGHTS);
-        assert.ok(freshResult.total > staleResult.total,
-            'Signal adjustment should increase score when calFresh is true');
-        assert.equal(freshResult.breakdown.signalAdjustment, 3);
-        assert.equal(staleResult.breakdown.signalAdjustment, 0);
     });
 });
 

@@ -82,7 +82,7 @@ function buildScanFunctions(database, config) {
             // Build scoring params
             const params = {
                 momentumScore: momentum.score,
-                rsNormalized: rs.rsScore,
+                rsNormalized: ((rs.rsScore || 50) / 100) * 10,
                 sectorFlow,
                 structureScore: structureResult ? structureResult.structureScore : 0,
                 isAccelerating: momentum.isAccelerating,
