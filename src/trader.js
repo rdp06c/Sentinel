@@ -202,41 +202,62 @@ function renderHoldingsDetail() {
         return;
     }
 
-    // Get sectors from latest scan
-    const sectorLookup = {};
+    // Enrich holdings with scan data
+    const candidateLookup = {};
     if (scanData?.candidates) {
-        for (const c of scanData.candidates) sectorLookup[c.symbol] = c.sector;
+        for (const c of scanData.candidates) candidateLookup[c.symbol] = c;
     }
 
     grid.innerHTML = holdings.map(h => {
-        const currentPrice = h.currentPrice || h.avgPrice;
+        const scan = candidateLookup[h.symbol];
+        const scanD = scan?.data || {};
+        const currentPrice = scanD.price || h.currentPrice || h.avgPrice;
         const pnl = (currentPrice - h.avgPrice) * h.shares;
         const pnlPercent = h.avgPrice ? ((currentPrice - h.avgPrice) / h.avgPrice * 100) : 0;
         const pnlClass = pnl >= 0 ? 'positive' : 'negative';
         const value = h.shares * currentPrice;
         const thesis = h.thesis || {};
-        const sector = sectorLookup[h.symbol] || thesis.sector || '';
+        const sector = scan?.sector || thesis.sector || '';
+        const dayChange = scanD.changePercent;
+        const dayClass = dayChange > 0 ? 'positive' : dayChange < 0 ? 'negative' : '';
 
         return `<div class="holding-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                <span style="font-weight:700;font-size:15px;color:var(--text-primary)">${h.symbol}</span>
-                <span class="${h.conviction >= 8 ? 'conviction-high' : h.conviction >= 5 ? 'conviction-mid' : 'conviction-low'}" style="font-weight:700">${h.conviction || '-'}/10</span>
+            <div class="holding-card-header">
+                <div>
+                    <div class="holding-card-symbol">${h.symbol}</div>
+                    ${sector ? `<div class="holding-card-sector">${sector}</div>` : ''}
+                    <div class="holding-card-shares">${h.shares} shares @ ${formatCurrency(h.avgPrice)}</div>
+                </div>
+                <div>
+                    <div class="holding-card-value">${formatCurrency(value)}</div>
+                    <div class="holding-card-gainloss ${pnlClass}">${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)} (${pnlPercent.toFixed(1)}%)</div>
+                    ${dayChange != null ? `<div class="holding-card-daily ${dayClass}">${dayChange >= 0 ? '+' : ''}${dayChange.toFixed(2)}% today</div>` : ''}
+                </div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-                <div><span style="color:var(--text-faint)">Shares:</span> ${h.shares}</div>
-                <div><span style="color:var(--text-faint)">Avg:</span> ${formatCurrency(h.avgPrice)}</div>
-                <div><span style="color:var(--text-faint)">Value:</span> ${formatCurrency(value)}</div>
-                <div><span style="color:var(--text-faint)">P&L:</span> <span class="${pnlClass}">${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)} (${pnlPercent.toFixed(1)}%)</span></div>
-            </div>
-            ${thesis.targets ? `<div style="display:flex;gap:8px;font-size:11px;margin-bottom:6px">
-                <span style="color:var(--red)">SL: ${formatCurrency(thesis.targets.stopLoss)}</span>
-                <span style="color:var(--green)">T1: ${formatCurrency(thesis.targets.target1)}</span>
-                ${thesis.targets.target2 ? `<span style="color:var(--green)">T2: ${formatCurrency(thesis.targets.target2)}</span>` : ''}
-                ${thesis.targets.riskReward ? `<span style="color:var(--accent)">R:R ${thesis.targets.riskReward.toFixed(1)}</span>` : ''}
+            ${thesis.targets ? `<div class="holding-card-timeframe">
+                <span style="color:var(--red)">Stop Loss: ${formatCurrency(thesis.targets.stopLoss)}</span>
+                &nbsp;\u2022&nbsp;
+                <span style="color:var(--green)">Target 1: ${formatCurrency(thesis.targets.target1)}</span>
+                ${thesis.targets.target2 ? `&nbsp;\u2022&nbsp;<span style="color:var(--green)">Target 2: ${formatCurrency(thesis.targets.target2)}</span>` : ''}
+                ${thesis.targets.riskReward ? `<div class="holding-card-timeframe-warning">R:R ${thesis.targets.riskReward.toFixed(1)}</div>` : ''}
             </div>` : ''}
-            <div style="font-size:11px;color:var(--text-faint);display:flex;justify-content:space-between">
-                <span>Entry: ${h.entryDate ? new Date(h.entryDate).toLocaleDateString() : '-'}</span>
-                ${sector ? `<span>${sector}</span>` : ''}
+            <div class="holding-card-footer">
+                <div>
+                    <span class="holding-card-footer-label">Entry: </span>
+                    <span class="holding-card-footer-value">${h.entryDate ? new Date(h.entryDate).toLocaleDateString() : '-'}</span>
+                </div>
+                <div>
+                    <span class="holding-card-footer-label">Conv: </span>
+                    <span class="holding-card-footer-value ${h.conviction >= 8 ? 'conviction-high' : h.conviction >= 5 ? 'conviction-mid' : 'conviction-low'}">${h.conviction || '-'}/10</span>
+                </div>
+                ${scanD.rsi != null ? `<div>
+                    <span class="holding-card-footer-label">RSI: </span>
+                    <span class="holding-card-footer-value ${scanD.rsi > 70 ? 'negative' : scanD.rsi < 30 ? 'positive' : ''}">${Math.round(scanD.rsi)}</span>
+                </div>` : ''}
+                ${scanD.structure ? `<div>
+                    <span class="holding-card-footer-label">Structure: </span>
+                    <span class="holding-card-footer-value">${scanD.structure.structure || '-'}</span>
+                </div>` : ''}
             </div>
         </div>`;
     }).join('');
@@ -298,22 +319,86 @@ function renderScorecard() {
 
     const watchSymbols = new Set(watchlist.map(w => w.symbol));
 
+    // Check which symbols are held
+    const heldSymbols = new Set((portfolio?.holdings || []).map(h => h.symbol));
+
     if (pageItems.length === 0) {
         container.innerHTML = '<div class="empty-state">No candidates match your filters</div>';
     } else {
         container.innerHTML = `<div class="scorecard-table-wrap"><table class="scorecard-table">
             <thead><tr>
-                <th></th><th>Symbol</th><th>Conv.</th><th>Score</th><th>Sector</th>
+                <th></th>
+                <th>#</th>
+                <th>Symbol</th>
+                <th>Score</th>
+                <th>Conv</th>
+                <th>Day</th>
+                <th>Mom</th>
+                <th>RS</th>
+                <th>RSI</th>
+                <th>MACD</th>
+                <th>Sector</th>
+                <th>Structure</th>
+                <th>Vol</th>
             </tr></thead>
-            <tbody>${pageItems.map(c => {
+            <tbody>${pageItems.map((c, idx) => {
+                const d = c.data || {};
+                const rank = start + idx + 1;
                 const convClass = c.conviction >= 8 ? 'conviction-high' : c.conviction >= 5 ? 'conviction-mid' : 'conviction-low';
                 const isWatched = watchSymbols.has(c.symbol);
+                const isHeld = heldSymbols.has(c.symbol);
+
+                // Score bar
+                const scoreMax = 20;
+                const scorePct = Math.min((c.compositeScore / scoreMax) * 100, 100);
+                const scoreClass = c.compositeScore >= 12 ? 'score-high' : c.compositeScore >= 8 ? 'score-mid' : c.compositeScore >= 4 ? 'score-low' : 'score-poor';
+
+                // Day change
+                const dayChange = d.changePercent;
+                const dayClass = dayChange > 0 ? 'positive' : dayChange < 0 ? 'negative' : '';
+
+                // Momentum
+                const momScore = d.momentum?.score ?? '--';
+
+                // RS
+                const rsScore = d.rs?.rsScore ?? '--';
+
+                // RSI
+                const rsi = d.rsi != null ? Math.round(d.rsi) : '--';
+                const rsiClass = d.rsi > 70 ? 'negative' : d.rsi < 30 ? 'positive' : '';
+
+                // MACD
+                let macdLabel = '--';
+                let macdClass = '';
+                if (d.macd) {
+                    if (d.macd.crossover === 'bullish') { macdLabel = '\u25b2 Cross'; macdClass = 'positive'; }
+                    else if (d.macd.crossover === 'bearish') { macdLabel = '\u25bc Cross'; macdClass = 'negative'; }
+                    else if (d.macd.histogram > 0) { macdLabel = '\u25b2'; macdClass = 'positive'; }
+                    else if (d.macd.histogram < 0) { macdLabel = '\u25bc'; macdClass = 'negative'; }
+                    else { macdLabel = '--'; }
+                }
+
+                // Structure
+                const structure = d.structure?.structure || '--';
+
+                // Volume
+                const volRatio = d.volume?.ratio;
+                const volClass = volRatio >= 1.5 ? 'positive' : volRatio <= 0.7 ? 'negative' : '';
+
                 return `<tr class="scorecard-row" onclick="toggleRowExpand(this, '${c.symbol}')">
                     <td><span class="watchlist-star ${isWatched ? 'active' : ''}" onclick="event.stopPropagation(); toggleWatchlist('${c.symbol}')">${isWatched ? '\u2605' : '\u2606'}</span></td>
-                    <td class="symbol-cell">${c.symbol}</td>
+                    <td class="scorecard-rank">${rank}</td>
+                    <td><span class="scorecard-symbol">${c.symbol}</span>${isHeld ? '<span class="scorecard-held-badge">HELD</span>' : ''}</td>
+                    <td><div class="scorecard-score-cell"><div class="scorecard-bar"><div class="scorecard-bar-fill ${scoreClass}" style="width:${scorePct}%"></div></div><span class="scorecard-score-num ${scoreClass}">${c.compositeScore.toFixed(1)}</span></div></td>
                     <td class="${convClass}">${c.conviction}</td>
-                    <td>${c.compositeScore.toFixed(1)}</td>
+                    <td class="${dayClass}">${dayChange != null ? (dayChange >= 0 ? '+' : '') + dayChange.toFixed(2) + '%' : '--'}</td>
+                    <td>${momScore}</td>
+                    <td>${rsScore}</td>
+                    <td class="${rsiClass}">${rsi}</td>
+                    <td class="${macdClass}">${macdLabel}</td>
                     <td>${c.sector || '-'}</td>
+                    <td>${structure}</td>
+                    <td class="${volClass}">${volRatio != null ? volRatio.toFixed(1) + 'x' : '--'}</td>
                 </tr>`;
             }).join('')}</tbody>
         </table></div>`;
@@ -354,17 +439,38 @@ function toggleRowExpand(row, symbol) {
     const candidate = scanData?.candidates?.find(c => c.symbol === symbol);
     if (!candidate) return;
 
-    const data = candidate.data || {};
+    const d = candidate.data || {};
+    const bd = d.breakdown || {};
     const expandedRow = document.createElement('tr');
     expandedRow.className = 'expanded-row';
-    expandedRow.innerHTML = `<td colspan="5">
-        <div class="expanded-content">
-            <div class="score-breakdown">
-                ${data.breakdown ? Object.entries(data.breakdown).map(([k, v]) =>
-                    `<div class="breakdown-item"><span class="breakdown-label">${k}</span><span class="breakdown-value">${typeof v === 'number' ? v.toFixed(2) : v}</span></div>`
-                ).join('') : '<span class="text-muted">No breakdown available</span>'}
+
+    // Format breakdown entries with coloring
+    const breakdownEntries = Object.entries(bd).map(([k, v]) => {
+        const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+        const val = typeof v === 'number' ? v.toFixed(2) : v;
+        const cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+        return `<div class="breakdown-item"><span class="breakdown-label">${label}</span><span class="breakdown-value ${cls}">${v > 0 ? '+' : ''}${val}</span></div>`;
+    });
+
+    // Quick stats row
+    const stats = [];
+    if (d.price) stats.push(`Price: ${formatCurrency(d.price)}`);
+    if (d.momentum?.totalReturn5d != null) stats.push(`5d Return: ${d.momentum.totalReturn5d >= 0 ? '+' : ''}${d.momentum.totalReturn5d.toFixed(2)}%`);
+    if (d.rs?.strength) stats.push(`RS: ${d.rs.strength}`);
+    if (d.structure?.structureSignal) stats.push(`Signal: ${d.structure.structureSignal.replace(/-/g, ' ')}`);
+    if (d.structure?.fvg && d.structure.fvg !== 'none') stats.push(`FVG: ${d.structure.fvg}`);
+    if (d.smaCrossover?.sma50) stats.push(`SMA50: ${formatCurrency(d.smaCrossover.sma50)}`);
+    if (d.sectorFlow && d.sectorFlow !== 'neutral') stats.push(`Sector Flow: ${d.sectorFlow}`);
+
+    expandedRow.innerHTML = `<td colspan="13">
+        <div class="expanded-content" style="padding:12px 16px">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text-secondary);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle)">
+                ${stats.map(s => `<span>${s}</span>`).join('<span style="color:var(--border-medium)">\u2022</span>')}
             </div>
-            ${data.news ? `<div class="news-section"><strong>News:</strong> ${data.news.map(n => n.title).join(' | ')}</div>` : ''}
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Score Breakdown</div>
+            <div class="score-breakdown" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));gap:4px 16px">
+                ${breakdownEntries.length > 0 ? breakdownEntries.join('') : '<span style="color:var(--text-faint)">No breakdown available</span>'}
+            </div>
         </div>
     </td>`;
     row.after(expandedRow);
