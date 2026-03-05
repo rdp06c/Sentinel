@@ -23,6 +23,8 @@ let scanData = null;
 let portfolio = null;
 let alerts = [];
 let watchlist = [];
+let closedTrades = [];
+let transactions = [];
 let chatMessageCount = 0;
 let lastChatTime = 0;
 
@@ -70,6 +72,7 @@ async function loadPortfolio() {
     try {
         portfolio = await apiCall('/api/portfolio');
         renderPortfolio();
+        renderHoldingsDetail();
     } catch (e) {
         console.error('Failed to load portfolio:', e.message);
     }
@@ -81,6 +84,8 @@ async function loadLatestScan() {
         if (scanData) {
             renderScorecard();
             updateScanInfo();
+            renderRegimeBanner();
+            renderSectorRotation();
         }
     } catch (e) {
         console.error('Failed to load scan:', e.message);
@@ -114,6 +119,34 @@ async function loadPerformance() {
     }
 }
 
+async function loadLearningInsights() {
+    try {
+        const data = await apiCall('/api/learning');
+        closedTrades = data.trades || [];
+        renderLearningInsights(data);
+        renderPerformanceAnalytics();
+    } catch (e) {
+        console.error('Failed to load learning insights:', e.message);
+    }
+}
+
+async function loadTrades() {
+    try {
+        transactions = await apiCall('/api/trades?limit=50');
+        renderTradeJournal();
+        renderActivityFeed();
+    } catch (e) {
+        console.error('Failed to load trades:', e.message);
+    }
+}
+
+async function loadCalibration() {
+    try {
+        const cal = await apiCall('/api/calibration');
+        renderCalibration(cal);
+    } catch { /* calibration may not be available yet */ }
+}
+
 // ── Rendering: Portfolio ──
 function renderPortfolio() {
     if (!portfolio) return;
@@ -127,6 +160,7 @@ function renderPortfolio() {
     setText('positionsCount', (portfolio.holdings || []).length);
 
     renderHoldings(portfolio.holdings || []);
+    renderSectorChart(portfolio.holdings || []);
 }
 
 function renderHoldings(holdings) {
@@ -141,7 +175,7 @@ function renderHoldings(holdings) {
     list.innerHTML = holdings.map(h => {
         const currentPrice = h.currentPrice || h.avgPrice;
         const pnl = (currentPrice - h.avgPrice) * h.shares;
-        const pnlPercent = ((currentPrice - h.avgPrice) / h.avgPrice * 100);
+        const pnlPercent = h.avgPrice ? ((currentPrice - h.avgPrice) / h.avgPrice * 100) : 0;
         const pnlClass = pnl >= 0 ? 'positive' : 'negative';
 
         return `<div class="holding-item">
@@ -157,11 +191,73 @@ function renderHoldings(holdings) {
     }).join('');
 }
 
+// ── Rendering: Holdings Detail (main content grid) ──
+function renderHoldingsDetail() {
+    const grid = document.getElementById('holdingsDetailGrid');
+    if (!grid || !portfolio) return;
+
+    const holdings = portfolio.holdings || [];
+    if (holdings.length === 0) {
+        grid.innerHTML = '<div class="empty-state">No positions yet</div>';
+        return;
+    }
+
+    // Get sectors from latest scan
+    const sectorLookup = {};
+    if (scanData?.candidates) {
+        for (const c of scanData.candidates) sectorLookup[c.symbol] = c.sector;
+    }
+
+    grid.innerHTML = holdings.map(h => {
+        const currentPrice = h.currentPrice || h.avgPrice;
+        const pnl = (currentPrice - h.avgPrice) * h.shares;
+        const pnlPercent = h.avgPrice ? ((currentPrice - h.avgPrice) / h.avgPrice * 100) : 0;
+        const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+        const value = h.shares * currentPrice;
+        const thesis = h.thesis || {};
+        const sector = sectorLookup[h.symbol] || thesis.sector || '';
+
+        return `<div class="holding-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <span style="font-weight:700;font-size:15px;color:var(--text-primary)">${h.symbol}</span>
+                <span class="${h.conviction >= 8 ? 'conviction-high' : h.conviction >= 5 ? 'conviction-mid' : 'conviction-low'}" style="font-weight:700">${h.conviction || '-'}/10</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+                <div><span style="color:var(--text-faint)">Shares:</span> ${h.shares}</div>
+                <div><span style="color:var(--text-faint)">Avg:</span> ${formatCurrency(h.avgPrice)}</div>
+                <div><span style="color:var(--text-faint)">Value:</span> ${formatCurrency(value)}</div>
+                <div><span style="color:var(--text-faint)">P&L:</span> <span class="${pnlClass}">${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)} (${pnlPercent.toFixed(1)}%)</span></div>
+            </div>
+            ${thesis.targets ? `<div style="display:flex;gap:8px;font-size:11px;margin-bottom:6px">
+                <span style="color:var(--red)">SL: ${formatCurrency(thesis.targets.stopLoss)}</span>
+                <span style="color:var(--green)">T1: ${formatCurrency(thesis.targets.target1)}</span>
+                ${thesis.targets.target2 ? `<span style="color:var(--green)">T2: ${formatCurrency(thesis.targets.target2)}</span>` : ''}
+                ${thesis.targets.riskReward ? `<span style="color:var(--accent)">R:R ${thesis.targets.riskReward.toFixed(1)}</span>` : ''}
+            </div>` : ''}
+            <div style="font-size:11px;color:var(--text-faint);display:flex;justify-content:space-between">
+                <span>Entry: ${h.entryDate ? new Date(h.entryDate).toLocaleDateString() : '-'}</span>
+                ${sector ? `<span>${sector}</span>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
 // ── Rendering: Scorecard ──
 function renderScorecard() {
     if (!scanData || !scanData.candidates) return;
 
     let candidates = [...scanData.candidates];
+
+    // Read filters from DOM
+    const sortSelect = document.getElementById('scorecardSort');
+    const sectorSelect = document.getElementById('scorecardSectorFilter');
+    const convictionSelect = document.getElementById('scorecardConvictionMin');
+    const watchlistCheckbox = document.getElementById('scorecardWatchlistOnly');
+
+    if (sortSelect) sortBy = sortSelect.value;
+    if (sectorSelect) filterSector = sectorSelect.value === 'all' ? '' : sectorSelect.value;
+    if (convictionSelect) filterConvictionMin = parseInt(convictionSelect.value) || 0;
+    if (watchlistCheckbox) filterWatchlistOnly = watchlistCheckbox.checked;
 
     // Apply filters
     if (filterSector) {
@@ -196,48 +292,53 @@ function renderScorecard() {
     const start = (currentPage - 1) * PAGE_SIZE;
     const pageItems = candidates.slice(start, start + PAGE_SIZE);
 
-    // Render table
-    const tbody = document.getElementById('scorecardBody');
-    if (!tbody) return;
+    // Render
+    const container = document.getElementById('candidateScorecardContent');
+    if (!container) return;
 
     const watchSymbols = new Set(watchlist.map(w => w.symbol));
 
-    tbody.innerHTML = pageItems.map(c => {
-        const convClass = c.conviction >= 8 ? 'conviction-high' : c.conviction >= 5 ? 'conviction-mid' : 'conviction-low';
-        const isWatched = watchSymbols.has(c.symbol);
-
-        return `<tr class="scorecard-row" onclick="toggleRowExpand(this, '${c.symbol}')">
-            <td><span class="watchlist-star ${isWatched ? 'active' : ''}" onclick="event.stopPropagation(); toggleWatchlist('${c.symbol}')">${isWatched ? '\u2605' : '\u2606'}</span></td>
-            <td class="symbol-cell">${c.symbol}</td>
-            <td class="${convClass}">${c.conviction}</td>
-            <td>${c.compositeScore.toFixed(1)}</td>
-            <td>${c.sector || '-'}</td>
-        </tr>`;
-    }).join('');
+    if (pageItems.length === 0) {
+        container.innerHTML = '<div class="empty-state">No candidates match your filters</div>';
+    } else {
+        container.innerHTML = `<div class="scorecard-table-wrap"><table class="scorecard-table">
+            <thead><tr>
+                <th></th><th>Symbol</th><th>Conv.</th><th>Score</th><th>Sector</th>
+            </tr></thead>
+            <tbody>${pageItems.map(c => {
+                const convClass = c.conviction >= 8 ? 'conviction-high' : c.conviction >= 5 ? 'conviction-mid' : 'conviction-low';
+                const isWatched = watchSymbols.has(c.symbol);
+                return `<tr class="scorecard-row" onclick="toggleRowExpand(this, '${c.symbol}')">
+                    <td><span class="watchlist-star ${isWatched ? 'active' : ''}" onclick="event.stopPropagation(); toggleWatchlist('${c.symbol}')">${isWatched ? '\u2605' : '\u2606'}</span></td>
+                    <td class="symbol-cell">${c.symbol}</td>
+                    <td class="${convClass}">${c.conviction}</td>
+                    <td>${c.compositeScore.toFixed(1)}</td>
+                    <td>${c.sector || '-'}</td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table></div>`;
+    }
 
     // Pagination controls
-    setText('pageInfo', `Page ${currentPage} of ${totalPages} (${candidates.length} stocks)`);
-    const prevBtn = document.getElementById('prevPage');
-    const nextBtn = document.getElementById('nextPage');
+    const pageIndicator = document.getElementById('scorecardPageIndicator');
+    if (pageIndicator) pageIndicator.textContent = `Page ${currentPage} of ${totalPages} (${candidates.length} stocks)`;
+    const prevBtn = document.getElementById('scorecardPrevBtn');
+    const nextBtn = document.getElementById('scorecardNextBtn');
     if (prevBtn) prevBtn.disabled = currentPage <= 1;
     if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
-
-    // Populate sector filter
-    populateSectorFilter();
 }
 
-function populateSectorFilter() {
-    const select = document.getElementById('filterSector');
-    if (!select || select.children.length > 1) return;
-    if (!scanData?.candidates) return;
+function applyScorecardFilters() {
+    currentPage = 1;
+    renderScorecard();
+}
 
-    const sectors = [...new Set(scanData.candidates.map(c => c.sector).filter(Boolean))].sort();
-    for (const s of sectors) {
-        const opt = document.createElement('option');
-        opt.value = s;
-        opt.textContent = s;
-        select.appendChild(opt);
-    }
+function scorecardPrevPage() {
+    if (currentPage > 1) { currentPage--; renderScorecard(); }
+}
+
+function scorecardNextPage() {
+    if (currentPage < totalPages) { currentPage++; renderScorecard(); }
 }
 
 function toggleRowExpand(row, symbol) {
@@ -290,14 +391,19 @@ function renderAlerts() {
 }
 
 function updateAlertBadge() {
-    const badge = document.getElementById('alertBadge');
-    if (badge) {
-        if (alerts.length > 0) {
-            badge.textContent = alerts.length;
-            badge.style.display = 'inline';
-        } else {
-            badge.style.display = 'none';
-        }
+    const countEl = document.getElementById('alertBadgeCount');
+    const sidebarBadge = document.getElementById('sidebarAlertBadge');
+    const titleBadge = document.getElementById('alertsTitleBadge');
+    const alertsSection = document.getElementById('alertsSection');
+
+    if (countEl) countEl.textContent = alerts.length;
+    if (titleBadge) titleBadge.textContent = alerts.length;
+
+    if (alerts.length > 0) {
+        if (sidebarBadge) sidebarBadge.style.display = '';
+        if (alertsSection) alertsSection.style.display = '';
+    } else {
+        if (sidebarBadge) sidebarBadge.style.display = 'none';
     }
 }
 
@@ -307,7 +413,6 @@ let perfChart = null;
 function renderPerformanceChart(history) {
     const canvas = document.getElementById('performanceChart');
     if (!canvas || !history || history.length === 0) return;
-
     if (typeof Chart === 'undefined') return;
 
     const labels = history.map(p => p.date);
@@ -341,13 +446,280 @@ function renderPerformanceChart(history) {
     });
 }
 
+// ── Rendering: Performance Analytics ──
+function renderPerformanceAnalytics() {
+    if (!closedTrades || closedTrades.length === 0) return;
+
+    const wins = closedTrades.filter(t => t.profitLoss > 0);
+    const losses = closedTrades.filter(t => t.profitLoss < 0);
+    const winRate = closedTrades.length > 0 ? ((wins.length / closedTrades.length) * 100).toFixed(0) : 0;
+
+    setText('winRate', `${winRate}%`);
+    setText('winLossRatio', `${wins.length}W / ${losses.length}L`);
+    setText('totalTrades', closedTrades.length);
+
+    // Best/worst trade
+    const sorted = [...closedTrades].sort((a, b) => b.returnPercent - a.returnPercent);
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+
+    if (best) {
+        setText('bestTrade', best.symbol);
+        const el = document.getElementById('bestTradeGain');
+        if (el) {
+            el.textContent = `+${best.returnPercent.toFixed(1)}%`;
+            el.className = 'index-change positive';
+        }
+    }
+    if (worst) {
+        setText('worstTrade', worst.symbol);
+        const el = document.getElementById('worstTradeLoss');
+        if (el) {
+            el.textContent = `${worst.returnPercent.toFixed(1)}%`;
+            el.className = 'index-change negative';
+        }
+    }
+
+    // Average hold time
+    const withHoldTime = closedTrades.filter(t => t.holdTime);
+    if (withHoldTime.length > 0) {
+        const avgMs = withHoldTime.reduce((s, t) => s + t.holdTime, 0) / withHoldTime.length;
+        const days = Math.round(avgMs / 86400000);
+        setText('avgHoldTime', days > 0 ? `${days}d` : '<1d');
+    }
+
+    // Total P&L from closed trades
+    const totalPnL = closedTrades.reduce((s, t) => s + (t.profitLoss || 0), 0);
+    const startingCash = 100000;
+    setText('totalReturn', `${((totalPnL / startingCash) * 100).toFixed(1)}%`);
+    const returnDollarEl = document.getElementById('totalReturnDollar');
+    if (returnDollarEl) {
+        returnDollarEl.textContent = `${totalPnL >= 0 ? '+' : ''}${formatCurrency(totalPnL)}`;
+        returnDollarEl.className = `index-change ${totalPnL >= 0 ? 'positive' : 'negative'}`;
+    }
+
+    // Drawdown (sequential from trade history)
+    let peak = 0, maxDD = 0, running = 0;
+    for (const t of closedTrades) {
+        running += (t.profitLoss || 0);
+        if (running > peak) peak = running;
+        const dd = peak > 0 ? ((peak - running) / peak) * 100 : 0;
+        if (dd > maxDD) maxDD = dd;
+    }
+    setText('drawdownValue', maxDD > 0 ? `-${maxDD.toFixed(1)}%` : '--');
+}
+
+// ── Rendering: Regime Banner ──
+function renderRegimeBanner() {
+    const banner = document.getElementById('regimeBanner');
+    if (!banner || !scanData) return;
+
+    // Extract VIX from first candidate's data
+    const firstCandidate = scanData.candidates?.[0];
+    const vix = firstCandidate?.data?.vix;
+
+    if (vix != null) {
+        banner.style.display = '';
+        const regime = vix >= 30 ? 'bear' : vix >= 20 ? 'choppy' : 'bull';
+        const desc = vix >= 30
+            ? 'VIX elevated \u2014 favor defensive sectors, tighter stops, reduce position sizes'
+            : vix >= 20
+            ? 'VIX mixed \u2014 selective entries, standard position sizing'
+            : 'VIX calm \u2014 momentum strategies favored, trend following';
+
+        setText('regimeLabel', regime === 'bull' ? 'Low Volatility' : regime === 'choppy' ? 'Elevated Volatility' : 'High Volatility');
+        setText('regimeDescription', desc);
+
+        const vixEl = document.getElementById('regimeVIX');
+        if (vixEl) {
+            vixEl.textContent = `VIX: ${vix.toFixed(1)}`;
+            vixEl.className = `regime-vix ${vix >= 30 ? 'vix-panic' : vix >= 20 ? 'vix-elevated' : vix >= 15 ? 'vix-normal' : 'vix-low'}`;
+        }
+
+        setText('regimeTimestamp', `Updated: ${new Date(scanData.createdAt).toLocaleTimeString()}`);
+        banner.className = `regime-banner ${regime}`;
+    }
+}
+
+// ── Rendering: Sector Rotation ──
+function renderSectorRotation() {
+    const container = document.getElementById('sectorRotationContent');
+    if (!container || !scanData?.candidates) return;
+
+    const sectors = {};
+    for (const c of scanData.candidates) {
+        const sec = c.sector || 'Other';
+        if (!sectors[sec]) sectors[sec] = { count: 0, totalConv: 0, totalScore: 0, high: 0 };
+        sectors[sec].count++;
+        sectors[sec].totalConv += c.conviction;
+        sectors[sec].totalScore += c.compositeScore;
+        if (c.conviction >= 7) sectors[sec].high++;
+    }
+
+    const sorted = Object.entries(sectors).sort((a, b) =>
+        (b[1].totalConv / b[1].count) - (a[1].totalConv / a[1].count)
+    );
+
+    if (sorted.length === 0) {
+        container.innerHTML = '<div class="empty-state">No sector data</div>';
+        return;
+    }
+
+    container.innerHTML = sorted.map(([name, data]) => {
+        const avgConv = (data.totalConv / data.count).toFixed(1);
+        const barColor = avgConv >= 7 ? 'var(--green)' : avgConv >= 5 ? 'var(--accent)' : 'var(--red)';
+        return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
+            <div style="min-width:140px;font-size:12px;font-weight:600;color:var(--text-primary)">${name}</div>
+            <div style="flex:1;height:6px;background:var(--bg-inset);border-radius:3px;overflow:hidden">
+                <div style="width:${Math.min(avgConv * 10, 100)}%;height:100%;background:${barColor};border-radius:3px"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text-secondary);min-width:55px;text-align:right">Avg ${avgConv}</div>
+            <div style="font-size:11px;color:var(--text-faint);min-width:50px;text-align:right">${data.high}/${data.count} hi</div>
+        </div>`;
+    }).join('');
+}
+
+// ── Rendering: Sector Chart ──
+let sectorChartInstance = null;
+
+function renderSectorChart(holdings) {
+    const canvas = document.getElementById('sectorChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    if (!holdings || holdings.length === 0) {
+        const legend = document.getElementById('sectorLegend');
+        if (legend) legend.innerHTML = '<div class="empty-state">No positions</div>';
+        return;
+    }
+
+    // Get sectors from scan data or thesis
+    const sectorLookup = {};
+    if (scanData?.candidates) {
+        for (const c of scanData.candidates) sectorLookup[c.symbol] = c.sector;
+    }
+
+    const sectorValues = {};
+    for (const h of holdings) {
+        const sector = sectorLookup[h.symbol] || h.thesis?.sector || 'Unknown';
+        const value = h.shares * (h.currentPrice || h.avgPrice);
+        if (!sectorValues[sector]) sectorValues[sector] = 0;
+        sectorValues[sector] += value;
+    }
+
+    const labels = Object.keys(sectorValues);
+    const values = Object.values(sectorValues);
+    const colors = ['#f59e0b', '#3b82f6', '#34d399', '#f87171', '#a78bfa', '#60a5fa', '#fbbf24', '#ec4899', '#14b8a6', '#8b5cf6', '#f97316', '#06b6d4'];
+
+    if (sectorChartInstance) sectorChartInstance.destroy();
+
+    sectorChartInstance = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                backgroundColor: colors.slice(0, labels.length),
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.label}: ${formatCurrency(ctx.raw)}`
+                    }
+                }
+            }
+        }
+    });
+
+    const legend = document.getElementById('sectorLegend');
+    if (legend) {
+        legend.innerHTML = labels.map((l, i) =>
+            `<div class="sector-legend-item"><span class="sector-dot" style="background:${colors[i]}"></span>${l}: ${formatCurrency(values[i])}</div>`
+        ).join('');
+    }
+}
+
+// ── Rendering: Trade Journal ──
+function renderTradeJournal() {
+    const container = document.getElementById('tradeJournal');
+    if (!container) return;
+
+    if (!transactions || transactions.length === 0) {
+        container.innerHTML = '<div class="empty-state">No trades yet. Add a trade to start building your journal.</div>';
+        return;
+    }
+
+    container.innerHTML = transactions.slice(0, 20).map(t => {
+        const isBuy = t.action === 'BUY';
+        return `<div class="activity-item ${isBuy ? 'buy' : 'sell'}">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <div>
+                    <span style="font-weight:700;font-size:11px;padding:2px 6px;border-radius:3px;background:${isBuy ? 'var(--green-dim)' : 'var(--red-dim)'};color:${isBuy ? 'var(--green)' : 'var(--red)'}">${t.action}</span>
+                    <span style="font-weight:600;margin-left:6px">${t.symbol}</span>
+                </div>
+                <span class="activity-time">${t.date ? new Date(t.date).toLocaleDateString() : '-'}</span>
+            </div>
+            <div class="activity-description">
+                ${t.shares} shares @ ${formatCurrency(t.price)} = ${formatCurrency(t.total)}
+                ${t.conviction ? ` \u00b7 Conv: ${t.conviction}` : ''}
+            </div>
+            ${t.notes ? `<div style="font-size:11px;color:var(--text-faint);margin-top:4px;font-style:italic">${t.notes}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+// ── Rendering: Activity Feed ──
+function renderActivityFeed() {
+    const container = document.getElementById('activityFeed');
+    if (!container) return;
+
+    const activities = [];
+
+    for (const t of (transactions || []).slice(0, 5)) {
+        activities.push({
+            time: t.created_at || t.date,
+            text: `${t.action} ${t.shares} ${t.symbol} @ ${formatCurrency(t.price)}`,
+            type: t.action === 'BUY' ? 'buy' : 'sell'
+        });
+    }
+
+    for (const a of (alerts || []).slice(0, 5)) {
+        activities.push({
+            time: a.createdAt,
+            text: `[${a.severity.toUpperCase()}] ${a.symbol}: ${a.message}`,
+            type: 'alert'
+        });
+    }
+
+    activities.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+    if (activities.length === 0) {
+        container.innerHTML = '<div class="empty-state">No activity yet</div>';
+        return;
+    }
+
+    container.innerHTML = activities.slice(0, 10).map(a => {
+        const time = a.time ? new Date(a.time).toLocaleString() : '';
+        return `<div class="activity-item ${a.type}">
+            <div class="activity-time">${time}</div>
+            <div class="activity-description">${a.text}</div>
+        </div>`;
+    }).join('');
+}
+
 // ── Actions ──
 async function triggerScan() {
-    const btn = document.querySelector('.scan-btn');
+    const btns = document.querySelectorAll('.sidebar-actions button');
+    const btn = btns[0];
     if (btn) { btn.disabled = true; btn.textContent = 'Scanning...'; }
     try {
         await apiCall('/api/scans/trigger', { method: 'POST' });
-        // Poll for completion
+        showToast('Scan started \u2014 results will appear shortly', 'info');
         let attempts = 0;
         const poll = setInterval(async () => {
             attempts++;
@@ -358,10 +730,13 @@ async function triggerScan() {
                     scanData = newScan;
                     renderScorecard();
                     updateScanInfo();
+                    renderRegimeBanner();
+                    renderSectorRotation();
                     if (btn) { btn.disabled = false; btn.textContent = 'Scan Market'; }
+                    showToast('Scan complete', 'success');
                 }
             } catch { /* keep polling */ }
-            if (attempts > 120) { // 2 minutes timeout
+            if (attempts > 120) {
                 clearInterval(poll);
                 if (btn) { btn.disabled = false; btn.textContent = 'Scan Market'; }
             }
@@ -378,6 +753,7 @@ async function dismissAlert(id) {
         alerts = alerts.filter(a => a.id !== id);
         renderAlerts();
         updateAlertBadge();
+        renderActivityFeed();
     } catch (e) {
         showToast(`Failed to dismiss: ${e.message}`, 'error');
     }
@@ -399,11 +775,59 @@ async function toggleWatchlist(symbol) {
     }
 }
 
+async function refreshPrices() {
+    showToast('Refreshing data...', 'info');
+    try {
+        await Promise.all([loadPortfolio(), loadLatestScan(), loadAlerts()]);
+        showToast('Data refreshed', 'success');
+    } catch {
+        showToast('Refresh failed', 'error');
+    }
+}
+
+function toggleAnalyticsExpansion(cardId, cardEl) {
+    const popover = document.getElementById('analyticsPopover');
+    const content = document.getElementById('analyticsPopoverContent');
+    if (!popover || !content) return;
+
+    if (popover.classList.contains('active') && popover.dataset.card === cardId) {
+        popover.classList.remove('active');
+        return;
+    }
+
+    popover.dataset.card = cardId;
+    let html = '';
+
+    if (cardId === 'bestTrade' && closedTrades.length > 0) {
+        const top = [...closedTrades].sort((a, b) => b.returnPercent - a.returnPercent);
+        html = '<div style="font-weight:600;margin-bottom:8px">Top 5 Trades</div>' +
+            top.slice(0, 5).map(t =>
+                `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px">
+                    <span>${t.symbol}</span>
+                    <span class="positive">+${t.returnPercent.toFixed(1)}% (${formatCurrency(t.profitLoss)})</span>
+                </div>`
+            ).join('');
+    } else if (cardId === 'worstTrade' && closedTrades.length > 0) {
+        const bottom = [...closedTrades].sort((a, b) => a.returnPercent - b.returnPercent);
+        html = '<div style="font-weight:600;margin-bottom:8px">Bottom 5 Trades</div>' +
+            bottom.slice(0, 5).map(t =>
+                `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px">
+                    <span>${t.symbol}</span>
+                    <span class="negative">${t.returnPercent.toFixed(1)}% (${formatCurrency(t.profitLoss)})</span>
+                </div>`
+            ).join('');
+    }
+
+    if (html) {
+        content.innerHTML = html;
+        popover.classList.add('active');
+    }
+}
+
 // ── Trade Modal ──
 function openTradeModal() {
     const modal = document.getElementById('tradeModal');
     if (modal) modal.classList.add('active');
-    // Default date to today
     const dateInput = document.getElementById('tradeDate');
     if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
 }
@@ -413,7 +837,9 @@ function closeTradeModal() {
     if (modal) modal.classList.remove('active');
 }
 
-async function submitTrade() {
+async function submitTrade(event) {
+    if (event) event.preventDefault();
+
     const symbol = document.getElementById('tradeSymbol')?.value?.toUpperCase()?.trim();
     const action = document.querySelector('input[name="tradeAction"]:checked')?.value;
     const shares = parseFloat(document.getElementById('tradeShares')?.value);
@@ -434,23 +860,31 @@ async function submitTrade() {
         });
         closeTradeModal();
         showToast(`${action} ${shares} ${symbol} @ ${formatCurrency(price)}`, 'success');
-        await loadPortfolio();
+        document.getElementById('tradeForm')?.reset();
+        await Promise.all([loadPortfolio(), loadTrades()]);
     } catch (e) {
         showToast(`Trade failed: ${e.message}`, 'error');
     }
 }
 
-function updateConvictionDisplay() {
-    const slider = document.getElementById('tradeConviction');
-    const display = document.getElementById('convictionDisplay');
-    if (slider && display) {
-        const val = parseInt(slider.value);
-        display.textContent = val;
-        display.className = 'conviction-value ' + (val >= 8 ? 'conviction-high' : val >= 5 ? 'conviction-mid' : 'conviction-low');
+// ── Chat ──
+function activateChat() {
+    const gate = document.getElementById('chatGate');
+    const messages = document.getElementById('chatMessages');
+    const inputContainer = document.getElementById('chatInputContainer');
+    if (gate) gate.style.display = 'none';
+    if (messages) messages.style.display = '';
+    if (inputContainer) inputContainer.style.display = '';
+    document.getElementById('chatInput')?.focus();
+}
+
+function handleChatKeyPress(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
     }
 }
 
-// ── Chat ──
 async function sendMessage() {
     const input = document.getElementById('chatInput');
     const message = input?.value?.trim();
@@ -473,7 +907,7 @@ async function sendMessage() {
 
     try {
         const data = await apiCall('/api/chat', { method: 'POST', body: { message } });
-        addChatMessage(data.response || data.error || 'No response', 'assistant');
+        addChatMessage(data.reply || data.error || 'No response', 'assistant');
     } catch (e) {
         addChatMessage(`Error: ${e.message}`, 'system');
     }
@@ -482,25 +916,22 @@ async function sendMessage() {
 function addChatMessage(text, role) {
     const container = document.getElementById('chatMessages');
     if (!container) return;
+
     const div = document.createElement('div');
-    div.className = `chat-message ${role}`;
-    div.textContent = text;
+    if (role === 'user') {
+        div.className = 'user-message';
+        div.innerHTML = `<div class="message-content"><div class="message-name">You</div><div class="message-text">${escapeHtml(text)}</div></div>`;
+    } else {
+        div.className = role === 'assistant' ? 'agent-message' : 'system-message';
+        div.innerHTML = `<div class="message-avatar">${role === 'assistant' ? 'A' : '!'}</div><div class="message-content"><div class="message-name">${role === 'assistant' ? 'APEX' : 'System'}</div><div class="message-text">${escapeHtml(text)}</div></div>`;
+    }
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 }
 
 // ── Learning Insights ──
-async function loadLearningInsights() {
-    try {
-        const data = await apiCall('/api/learning');
-        renderLearningInsights(data);
-    } catch (e) {
-        console.error('Failed to load learning insights:', e.message);
-    }
-}
-
 function renderLearningInsights(data) {
-    const container = document.getElementById('learningContent');
+    const container = document.getElementById('learningInsights');
     if (!container) return;
 
     const { trades, rules } = data;
@@ -509,11 +940,11 @@ function renderLearningInsights(data) {
         return;
     }
 
-    const wins = trades.filter(t => t.profitLoss > 0).length;
-    const losses = trades.filter(t => t.profitLoss < 0).length;
-    const winRate = trades.length > 0 ? ((wins / trades.length) * 100).toFixed(0) : 0;
-    const avgWin = wins > 0 ? trades.filter(t => t.profitLoss > 0).reduce((s, t) => s + t.returnPercent, 0) / wins : 0;
-    const avgLoss = losses > 0 ? trades.filter(t => t.profitLoss < 0).reduce((s, t) => s + t.returnPercent, 0) / losses : 0;
+    const wins = trades.filter(t => t.profitLoss > 0);
+    const losses = trades.filter(t => t.profitLoss < 0);
+    const winRate = trades.length > 0 ? ((wins.length / trades.length) * 100).toFixed(0) : 0;
+    const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.returnPercent, 0) / wins.length : 0;
+    const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + t.returnPercent, 0) / losses.length : 0;
 
     // By conviction level
     const byConviction = {};
@@ -526,43 +957,61 @@ function renderLearningInsights(data) {
     });
 
     container.innerHTML = `
-        <div class="learning-summary">
-            <div class="learning-stat"><span class="label">Win Rate</span><span class="value ${winRate >= 50 ? 'conviction-high' : 'conviction-low'}">${winRate}%</span></div>
-            <div class="learning-stat"><span class="label">Trades</span><span class="value">${trades.length}</span></div>
-            <div class="learning-stat"><span class="label">Avg Win</span><span class="value conviction-high">+${avgWin.toFixed(1)}%</span></div>
-            <div class="learning-stat"><span class="label">Avg Loss</span><span class="value conviction-low">${avgLoss.toFixed(1)}%</span></div>
-        </div>
-        <div class="conviction-table">
-            <div class="conviction-header">Win Rate by Conviction</div>
-            ${Object.entries(byConviction).sort().map(([bucket, d]) => {
-                const wr = d.total > 0 ? ((d.wins / d.total) * 100).toFixed(0) : 0;
-                return `<div class="conviction-row">
-                    <span>${bucket}</span>
-                    <span>${wr}% (${d.wins}/${d.total})</span>
-                    <span>Avg: ${(d.totalReturn / d.total).toFixed(1)}%</span>
-                </div>`;
-            }).join('')}
+        <div class="insights-grid">
+            <div class="insight-panel">
+                <div class="insight-panel-title">Performance Summary</div>
+                <div class="rr-stats-row">
+                    <div class="rr-stat"><div class="rr-stat-value ${winRate >= 50 ? 'positive' : 'negative'}">${winRate}%</div><div class="rr-stat-label">Win Rate</div></div>
+                    <div class="rr-stat"><div class="rr-stat-value">${trades.length}</div><div class="rr-stat-label">Trades</div></div>
+                    <div class="rr-stat"><div class="rr-stat-value positive">+${avgWin.toFixed(1)}%</div><div class="rr-stat-label">Avg Win</div></div>
+                    <div class="rr-stat"><div class="rr-stat-value negative">${avgLoss.toFixed(1)}%</div><div class="rr-stat-label">Avg Loss</div></div>
+                </div>
+            </div>
+            <div class="insight-panel">
+                <div class="insight-panel-title">Win Rate by Conviction</div>
+                <table class="signal-accuracy-table">
+                    <thead><tr><th>Level</th><th>Win Rate</th><th>Trades</th><th>Avg Return</th></tr></thead>
+                    <tbody>${Object.entries(byConviction).sort().map(([bucket, d]) => {
+                        const wr = d.total > 0 ? ((d.wins / d.total) * 100).toFixed(0) : 0;
+                        const avgRet = (d.totalReturn / d.total).toFixed(1);
+                        return `<tr>
+                            <td>${bucket}</td>
+                            <td class="${wr >= 50 ? 'positive' : 'negative'}">${wr}%</td>
+                            <td>${d.wins}/${d.total}</td>
+                            <td class="${avgRet >= 0 ? 'positive' : 'negative'}">${avgRet}%</td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>
         </div>
         ${rules?.rules?.length > 0 ? `
-        <div class="trading-rules-section">
-            <div class="conviction-header">Derived Trading Rules</div>
-            ${rules.rules.slice(0, 10).map(r => `
-                <div class="rule-item ${r.type}">
-                    <span class="rule-type ${r.type}">${r.type}</span>
-                    <span class="rule-desc">${r.description || r.id}</span>
-                </div>
-            `).join('')}
+        <div class="rules-section" style="margin-top:12px">
+            <div class="rules-section-title">Derived Trading Rules</div>
+            <div class="rules-grid">
+                ${rules.rules.slice(0, 10).map(r => {
+                    const ruleType = r.type || r.enforcement || 'observe';
+                    return `<div class="rule-card rule-${ruleType}">
+                        <div class="rule-card-header">
+                            <span class="rule-card-label">${r.description || r.id}</span>
+                            <span class="rule-enforcement-badge rule-badge-${ruleType}">${ruleType.toUpperCase()}</span>
+                        </div>
+                        ${r.stats ? `<div class="rule-card-stats">${Object.entries(r.stats).map(([k, v]) =>
+                            `<span class="rule-stat">${k}: ${v}</span>`
+                        ).join('')}</div>` : ''}
+                    </div>`;
+                }).join('')}
+            </div>
         </div>` : ''}
     `;
 }
 
-// ── Calibration UI ──
+// ── Calibration ──
 async function triggerCalibration() {
     const btn = document.getElementById('calibrateBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Calibrating...'; }
     try {
         await apiCall('/api/calibrate', { method: 'POST' });
-        showToast('Calibration started — this may take a few minutes', 'info');
+        showToast('Calibration started \u2014 this may take a few minutes', 'info');
     } catch (e) {
         showToast(`Calibration failed: ${e.message}`, 'error');
     } finally {
@@ -570,66 +1019,51 @@ async function triggerCalibration() {
     }
 }
 
-async function loadCalibration() {
-    try {
-        const cal = await apiCall('/api/stock/calibration/history'); // Will 404 for now, that's fine
-        renderCalibration(cal);
-    } catch { /* not yet available */ }
-}
-
 function renderCalibration(cal) {
     const container = document.getElementById('calibrationContent');
-    if (!container || !cal || !cal.weights) return;
+    if (!container) return;
+
+    if (!cal || !cal.weights) {
+        container.innerHTML = '<div class="empty-state">No calibration data yet. Run a calibration sweep to optimize scoring weights.</div>';
+        return;
+    }
+
+    const calibratedAt = cal.calibratedAt ? new Date(cal.calibratedAt).toLocaleDateString() : 'Unknown';
+    const weights = cal.weights || {};
+    const topWeights = Object.entries(weights)
+        .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
+        .slice(0, 8);
+
     container.innerHTML = `
-        <div class="calibration-info">
-            <div class="cal-stat"><span>Last Calibrated:</span><span>${cal.timestamp ? new Date(cal.timestamp).toLocaleDateString() : 'Never'}</span></div>
-            <div class="cal-stat"><span>Data Points:</span><span>${cal.dataPoints || '-'}</span></div>
-            <div class="cal-stat"><span>Improvement:</span><span>${cal.validation?.improvement?.toFixed(2) || '-'}%</span></div>
+        <div class="insights-grid">
+            <div class="insight-panel">
+                <div class="insight-panel-title">Calibration Info</div>
+                <div class="insight-panel-body">
+                    <div style="margin-bottom:6px"><span style="color:var(--text-faint)">Last Run:</span> ${calibratedAt}</div>
+                    <div style="margin-bottom:6px"><span style="color:var(--text-faint)">Components:</span> ${Object.keys(weights).length}</div>
+                    ${cal.sweepResults?.validation ? `<div><span style="color:var(--text-faint)">Improvement:</span> <span class="positive">${cal.sweepResults.validation.improvement?.toFixed(1)}%</span></div>` : ''}
+                </div>
+            </div>
+            <div class="insight-panel">
+                <div class="insight-panel-title">Top Scoring Weights</div>
+                <table class="signal-accuracy-table">
+                    <thead><tr><th>Component</th><th>Weight</th></tr></thead>
+                    <tbody>${topWeights.map(([name, weight]) =>
+                        `<tr><td>${name}</td><td class="${weight >= 0 ? 'positive' : 'negative'}">${weight.toFixed(3)}</td></tr>`
+                    ).join('')}</tbody>
+                </table>
+            </div>
         </div>
     `;
 }
 
-// ── Conviction Evolution (sparkline) ──
+// ── Conviction History (sparkline) ──
 async function loadConvictionHistory(symbol) {
     try {
-        const history = await apiCall(`/api/stock/${symbol}/history`);
-        return history;
+        return await apiCall(`/api/stock/${symbol}/history`);
     } catch {
         return [];
     }
-}
-
-// ── Scorecard controls ──
-function changeSort(value) {
-    sortBy = value;
-    currentPage = 1;
-    renderScorecard();
-}
-
-function changeSectorFilter(value) {
-    filterSector = value;
-    currentPage = 1;
-    renderScorecard();
-}
-
-function changeConvictionFilter(value) {
-    filterConvictionMin = parseInt(value) || 0;
-    currentPage = 1;
-    renderScorecard();
-}
-
-function toggleWatchlistFilter() {
-    filterWatchlistOnly = !filterWatchlistOnly;
-    currentPage = 1;
-    renderScorecard();
-}
-
-function prevPage() {
-    if (currentPage > 1) { currentPage--; renderScorecard(); }
-}
-
-function nextPage() {
-    if (currentPage < totalPages) { currentPage++; renderScorecard(); }
 }
 
 // ── Section toggling ──
@@ -661,6 +1095,12 @@ function setText(id, text) {
     if (el) el.textContent = text;
 }
 
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
@@ -688,23 +1128,17 @@ function clearApiKey() {
 
 // ── Initialization ──
 async function init() {
-    // If no API key stored, prompt for it
     if (!API_KEY) {
         if (!promptForApiKey()) {
-            const text = document.getElementById('serverStatusText');
-            if (text) text.textContent = 'API key required';
+            setText('serverStatusText', 'API key required');
             return;
         }
     }
 
-    // Test the key
     const health = await checkServerStatus();
     if (!health) {
-        // Key might be wrong — offer to re-enter
         clearApiKey();
-        if (promptForApiKey()) {
-            return init(); // Retry with new key
-        }
+        if (promptForApiKey()) return init();
         return;
     }
 
@@ -714,13 +1148,12 @@ async function init() {
         loadAlerts(),
         loadWatchlist(),
         loadPerformance(),
-        loadLearningInsights()
+        loadLearningInsights(),
+        loadTrades(),
+        loadCalibration()
     ]);
 
-    // Health check every 30s
     setInterval(checkServerStatus, 30000);
-
-    // Refresh data every 60s
     setInterval(async () => {
         await loadAlerts();
         await loadPortfolio();

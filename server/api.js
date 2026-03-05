@@ -181,6 +181,11 @@ function createApp(database, apiSecret, opts = {}) {
         res.json({ status: 'queued', message: 'Calibration triggered' });
     });
 
+    // ── Calibration Data ──
+    app.get('/api/calibration', (req, res) => {
+        res.json(db.getCalibration(database));
+    });
+
     // ── Stock History ──
     app.get('/api/stock/:symbol/history', (req, res) => {
         const history = db.getStockHistory(database, req.params.symbol);

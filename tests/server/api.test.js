@@ -198,4 +198,12 @@ describe('API', () => {
             assert.ok(Array.isArray(res.body));
         });
     });
+
+    describe('calibration', () => {
+        it('GET /api/calibration returns calibration data', async () => {
+            const res = await request('/api/calibration');
+            assert.equal(res.status, 200);
+            assert.ok(typeof res.body === 'object');
+        });
+    });
 });

@@ -313,6 +313,22 @@
                 </div>
             </div>
 
+            <!-- Calibration Section (collapsible) -->
+            <div class="card collapsible-section" id="calibrationSection">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="false" aria-controls="calibrationBody" onclick="toggleSection('calibration')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('calibration')}">
+                    <h2 class="chart-title">Scoring Calibration</h2>
+                    <span class="toggle-icon collapsed" id="calibrationToggle">&#9662;</span>
+                </div>
+                <div class="section-body collapsed" id="calibrationBody">
+                    <div id="calibrationContent">
+                        <div class="empty-state">No calibration data yet</div>
+                    </div>
+                    <div style="margin-top:12px;text-align:center">
+                        <button id="calibrateBtn" onclick="triggerCalibration()" class="secondary">Run Calibration</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Activity Feed (collapsible) -->
             <div class="activity-feed card collapsible-section" id="activityFeedSection">
                 <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="activityFeedBody" onclick="toggleSection('activityFeed')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('activityFeed')}">
