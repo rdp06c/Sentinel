@@ -6,6 +6,7 @@ const { calculateRSI, calculateSMA, calculateMACD, calculateSMACrossover, calcul
 const { detectSectorRotation } = require('../core/sectors');
 const { calculateCompositeScore, deriveConvictionRating, getActiveWeights } = require('../core/scoring');
 const { detectStructure, checkStructureBreakdowns } = require('../core/structure');
+const { getSignalAccuracyAdjustments } = require('../core/learning');
 const { sendScanSummary, sendAlertNotification, sendErrorNotification } = require('./notify');
 const db = require('./db');
 
@@ -24,26 +25,32 @@ function buildScanFunctions(database, config) {
         const universe = symbols || screenStocks();
         const symbolSet = new Set(universe);
 
-        // Fetch in parallel: snapshot, daily bars, VIX
-        const [marketData, barsMap, vix] = await Promise.all([
+        // Fetch in parallel: snapshot, daily bars, VIX, short interest
+        const [marketData, barsMap, vix, shortInterest] = await Promise.all([
             data.fetchBulkSnapshot(universe, apiKey),
             data.fetchGroupedDailyBars(symbolSet, apiKey),
-            data.fetchVIX(apiKey)
+            data.fetchVIX(apiKey),
+            data.fetchShortInterest(universe, apiKey).catch(() => ({}))
         ]);
 
-        return { marketData, barsMap, vix };
+        return { marketData, barsMap, vix, shortInterest };
     }
 
     // ── scoreAll: compute composite scores + conviction for all stocks ──
     // marketData: { [symbol]: { price, changePercent, ... } }
     // barsMap: { [symbol]: bars[] }
     // vix: { level, trend, ... }
-    function scoreAll(marketData, barsMap, vix) {
+    function scoreAll(marketData, barsMap, vix, shortInterest) {
         const vixLevel = vix ? vix.level : null;
+        const siData = shortInterest || {};
 
         // Load calibrated weights from DB (if available)
         const calData = db.getCalibration(database);
         const weights = getActiveWeights(calData, vixLevel);
+
+        // Compute signal adjustments from trade history
+        const closedTrades = db.getClosedTrades(database, { limit: 200 });
+        const signalAdj = getSignalAccuracyAdjustments(closedTrades);
 
         // Detect sector rotation for flow signals
         const sectorAnalysis = detectSectorRotation(marketData, barsMap, stockSectors);
@@ -79,6 +86,14 @@ function buildScanFunctions(database, config) {
             // Sector flow for this stock
             const sectorFlow = sectorAnalysis[sector] ? sectorAnalysis[sector].moneyFlow : 'neutral';
 
+            // todayChange with bar fallback (when changePercent is 0/null, use last two bars)
+            let todayChange = mktData.changePercent || 0;
+            if (todayChange === 0 && bars && bars.length >= 2) {
+                const last = bars[bars.length - 1];
+                const prev = bars[bars.length - 2];
+                todayChange = prev.c ? ((last.c - prev.c) / prev.c) * 100 : 0;
+            }
+
             // Build scoring params
             const params = {
                 momentumScore: momentum.score,
@@ -88,14 +103,14 @@ function buildScanFunctions(database, config) {
                 isAccelerating: momentum.isAccelerating,
                 upDays: momentum.upDays,
                 totalDays: momentum.totalDays,
-                todayChange: mktData.changePercent || 0,
+                todayChange,
                 totalReturn5d: momentum.totalReturn5d || 0,
                 rsi,
                 macdCrossover: macdResult ? macdResult.crossover : 'none',
-                daysToCover: 0, // Would need short interest data
-                volumeTrend: volumeResult ? volumeResult.ratio : 1,
+                daysToCover: siData[symbol] ? siData[symbol].daysToCover : 0,
+                volumeTrend: momentum.volumeTrend != null ? momentum.volumeTrend : 1,
                 fvg: structureResult ? structureResult.fvg : 'none',
-                signalAdjustments: 0,
+                signalAdjustments: signalAdj,
                 sma20,
                 currentPrice: mktData.price,
                 smaCrossover: smaCrossResult ? smaCrossResult.crossover : 'none',

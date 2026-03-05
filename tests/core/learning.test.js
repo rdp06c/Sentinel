@@ -7,6 +7,7 @@ const {
     analyzeExitTiming,
     analyzeConvictionAccuracy,
     analyzeTechnicalAccuracy,
+    getSignalAccuracyAdjustments,
     matchesPattern,
     summarizePostExitQuality
 } = require('../../core/learning');
@@ -186,6 +187,40 @@ describe('summarizePostExitQuality', () => {
         assert.ok(result);
         assert.equal(result.weekTracked, 3);
         assert.equal(result.weekWentHigher, 2);
+    });
+});
+
+describe('getSignalAccuracyAdjustments', () => {
+    it('returns empty object for insufficient data', () => {
+        const result = getSignalAccuracyAdjustments([]);
+        assert.deepEqual(result, {});
+    });
+
+    it('returns empty object for null input', () => {
+        const result = getSignalAccuracyAdjustments(null);
+        assert.deepEqual(result, {});
+    });
+
+    it('returns overboughtRsiExtraPenalty when overbought RSI trades have low win rate', () => {
+        const trades = [
+            // 4 overbought RSI losing trades (count >= 3, winRate < 35%)
+            ...Array(4).fill(null).map(() => makeTrade({ profitLoss: -100, returnPercent: -5, entryTechnicals: { rsi: 75, macdCrossover: 'none', structure: 'ranging' } })),
+            // 4 normal winning trades
+            ...Array(4).fill(null).map(() => makeTrade({ profitLoss: 100, returnPercent: 5, entryTechnicals: { rsi: 50, macdCrossover: 'bullish', structure: 'bullish' } }))
+        ];
+        const result = getSignalAccuracyAdjustments(trades);
+        assert.equal(result.overboughtRsiExtraPenalty, -1);
+    });
+
+    it('returns bullishMacdExtraBonus when bullish MACD trades have high win rate', () => {
+        const trades = [
+            // 4 bullish MACD winning trades (count >= 3, winRate > 65%)
+            ...Array(4).fill(null).map(() => makeTrade({ profitLoss: 100, returnPercent: 5, entryTechnicals: { rsi: 50, macdCrossover: 'bullish', structure: 'bullish' } })),
+            // 2 non-MACD trades
+            ...Array(2).fill(null).map(() => makeTrade({ profitLoss: -50, returnPercent: -3, entryTechnicals: { rsi: 50, macdCrossover: 'none', structure: 'ranging' } }))
+        ];
+        const result = getSignalAccuracyAdjustments(trades);
+        assert.equal(result.bullishMacdExtraBonus, 1);
     });
 });
 

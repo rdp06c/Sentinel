@@ -461,12 +461,30 @@ function formatPerformanceInsights(closedTrades) {
     return insights;
 }
 
+// Derives scoring adjustments from historical signal accuracy
+// Returns object like { overboughtRsiExtraPenalty: -1, bullishMacdExtraBonus: 1, ... }
+function getSignalAccuracyAdjustments(closedTrades) {
+    const techData = analyzeTechnicalAccuracy(closedTrades);
+    if (!techData.hasData) return {};
+    const adj = {};
+    if (techData.rsi?.overbought?.count >= 3 && techData.rsi.overbought.winRate < 35)
+        adj.overboughtRsiExtraPenalty = -1;
+    if (techData.macd?.bullish?.count >= 3 && techData.macd.bullish.winRate > 65)
+        adj.bullishMacdExtraBonus = 1;
+    if (techData.structure?.bearish?.count >= 3 && techData.structure.bearish.winRate < 35)
+        adj.bearishStructureExtraPenalty = -1;
+    if (techData.runners?.runners?.count >= 3 && techData.runners.runners.winRate < 40)
+        adj.runnerExtraPenalty = -1;
+    return adj;
+}
+
 module.exports = {
     deriveTradingRules,
     formatPerformanceInsights,
     analyzeExitTiming,
     analyzeConvictionAccuracy,
     analyzeTechnicalAccuracy,
+    getSignalAccuracyAdjustments,
     matchesPattern,
     summarizePostExitQuality
 };

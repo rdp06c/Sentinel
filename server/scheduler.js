@@ -28,7 +28,7 @@ async function runFullScan(database, opts) {
             const data = await fetchData();
 
             // 2. Score all stocks
-            const result = scoreAll(data.marketData, data.barsMap, data.vix);
+            const result = scoreAll(data.marketData, data.barsMap, data.vix, data.shortInterest);
             const scored = result.scores;
 
             // 3. Store in database (include VIX + sector rotation as metadata)
