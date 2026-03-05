@@ -8,7 +8,7 @@
 
 // ── Configuration ──
 const API_BASE = window.location.origin;
-const API_KEY = document.querySelector('meta[name="api-key"]')?.content || '';
+let API_KEY = localStorage.getItem('apex_api_key') || '';
 const PAGE_SIZE = 50;
 
 // ── State ──
@@ -670,9 +670,44 @@ function showToast(message, type = 'info') {
     setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000);
 }
 
+// ── API Key Prompt ──
+function promptForApiKey() {
+    const key = prompt('Enter your APEX API secret (from .env on the Pi):');
+    if (key && key.trim()) {
+        API_KEY = key.trim();
+        localStorage.setItem('apex_api_key', API_KEY);
+        return true;
+    }
+    return false;
+}
+
+function clearApiKey() {
+    API_KEY = '';
+    localStorage.removeItem('apex_api_key');
+}
+
 // ── Initialization ──
 async function init() {
-    await checkServerStatus();
+    // If no API key stored, prompt for it
+    if (!API_KEY) {
+        if (!promptForApiKey()) {
+            const text = document.getElementById('serverText');
+            if (text) text.textContent = 'API key required';
+            return;
+        }
+    }
+
+    // Test the key
+    const health = await checkServerStatus();
+    if (!health) {
+        // Key might be wrong — offer to re-enter
+        clearApiKey();
+        if (promptForApiKey()) {
+            return init(); // Retry with new key
+        }
+        return;
+    }
+
     await Promise.all([
         loadPortfolio(),
         loadLatestScan(),
