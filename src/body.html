@@ -207,51 +207,37 @@
                 <div class="section-body collapsed" id="candidateScorecardBody">
                     <!-- Scorecard Toolbar -->
                     <div class="scorecard-toolbar" id="scorecardToolbar">
-                        <div class="scorecard-toolbar-row">
-                            <div class="scorecard-filter-group">
-                                <label for="scorecardSort">Sort by</label>
-                                <select id="scorecardSort" onchange="applyScorecardFilters()">
-                                    <option value="conviction" selected>Conviction</option>
-                                    <option value="score">Score</option>
-                                    <option value="sector">Sector</option>
-                                    <option value="symbol">Symbol</option>
-                                </select>
-                            </div>
-                            <div class="scorecard-filter-group">
-                                <label for="scorecardSectorFilter">Sector</label>
-                                <select id="scorecardSectorFilter" onchange="applyScorecardFilters()">
-                                    <option value="all" selected>All Sectors</option>
-                                    <option value="technology">Technology</option>
-                                    <option value="healthcare">Healthcare</option>
-                                    <option value="financials">Financials</option>
-                                    <option value="consumer_discretionary">Consumer Disc.</option>
-                                    <option value="consumer_staples">Consumer Staples</option>
-                                    <option value="industrials">Industrials</option>
-                                    <option value="energy">Energy</option>
-                                    <option value="utilities">Utilities</option>
-                                    <option value="real_estate">Real Estate</option>
-                                    <option value="materials">Materials</option>
-                                    <option value="communication">Communication</option>
-                                    <option value="other">Other</option>
-                                </select>
-                            </div>
-                            <div class="scorecard-filter-group">
-                                <label for="scorecardConvictionMin">Min Conviction</label>
-                                <select id="scorecardConvictionMin" onchange="applyScorecardFilters()">
-                                    <option value="0" selected>Any</option>
-                                    <option value="3">3+</option>
-                                    <option value="5">5+</option>
-                                    <option value="7">7+</option>
-                                    <option value="8">8+</option>
-                                    <option value="9">9+</option>
-                                </select>
-                            </div>
-                            <div class="scorecard-filter-group scorecard-toggle-group">
-                                <label for="scorecardWatchlistOnly">
-                                    <input type="checkbox" id="scorecardWatchlistOnly" onchange="applyScorecardFilters()">
-                                    Watchlist Only
-                                </label>
-                            </div>
+                        <div class="scorecard-filter-group">
+                            <label for="scorecardSort">Sort</label>
+                            <select id="scorecardSort" onchange="applyScorecardFilters()">
+                                <option value="conviction" selected>Conviction</option>
+                                <option value="score">Score</option>
+                                <option value="sector">Sector</option>
+                                <option value="symbol">Symbol</option>
+                            </select>
+                        </div>
+                        <div class="scorecard-filter-group">
+                            <label for="scorecardSectorFilter">Sector</label>
+                            <select id="scorecardSectorFilter" onchange="applyScorecardFilters()">
+                                <option value="all" selected>All Sectors</option>
+                            </select>
+                        </div>
+                        <div class="scorecard-filter-group">
+                            <label for="scorecardConvictionMin">Min Conv.</label>
+                            <select id="scorecardConvictionMin" onchange="applyScorecardFilters()">
+                                <option value="0" selected>Any</option>
+                                <option value="3">3+</option>
+                                <option value="5">5+</option>
+                                <option value="7">7+</option>
+                                <option value="8">8+</option>
+                                <option value="9">9+</option>
+                            </select>
+                        </div>
+                        <div class="scorecard-filter-group">
+                            <label class="scorecard-checkbox-label" for="scorecardWatchlistOnly">
+                                <input type="checkbox" id="scorecardWatchlistOnly" onchange="applyScorecardFilters()">
+                                <span>Watchlist</span>
+                            </label>
                         </div>
                     </div>
 

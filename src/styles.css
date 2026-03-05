@@ -2566,9 +2566,14 @@
         .conviction-low { color: #ef4444; font-weight: 600; }
 
         /* ── Sort/filter toolbar ── */
-        .scorecard-toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 16px; background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 12px; align-items: center; }
-        .scorecard-toolbar select, .scorecard-toolbar input { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #e5e5e5; padding: 6px 10px; border-radius: 6px; font-size: 0.8rem; }
-        .scorecard-toolbar label { font-size: 0.75rem; color: #999; }
+        .scorecard-toolbar { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 12px; align-items: flex-end; }
+        .scorecard-filter-group { display: flex; flex-direction: column; gap: 3px; }
+        .scorecard-filter-group label { font-size: 0.7rem; color: #777; text-transform: uppercase; letter-spacing: 0.5px; }
+        .scorecard-toolbar select { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); color: #ddd; padding: 5px 8px; border-radius: 5px; font-size: 0.78rem; cursor: pointer; min-width: 90px; appearance: auto; }
+        .scorecard-toolbar select:hover { border-color: rgba(255,255,255,0.25); }
+        .scorecard-toolbar select:focus { outline: none; border-color: var(--accent); }
+        .scorecard-checkbox-label { display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 5px 0; font-size: 0.78rem; color: #bbb; }
+        .scorecard-checkbox-label input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
 
         .pagination { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 12px; }
         .pagination button { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #e5e5e5; padding: 6px 14px; border-radius: 6px; cursor: pointer; }

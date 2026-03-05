@@ -83,6 +83,7 @@ async function loadLatestScan() {
     try {
         scanData = await apiCall('/api/scans/latest');
         if (scanData) {
+            populateSectorFilter();
             renderScorecard();
             updateScanInfo();
             renderRegimeBanner();
@@ -425,6 +426,29 @@ function renderScorecard() {
     const nextBtn = document.getElementById('scorecardNextBtn');
     if (prevBtn) prevBtn.disabled = currentPage <= 1;
     if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+}
+
+function populateSectorFilter() {
+    const select = document.getElementById('scorecardSectorFilter');
+    if (!select || !scanData || !scanData.candidates) return;
+
+    // Collect unique sectors from actual data
+    const sectors = [...new Set(scanData.candidates.map(c => c.sector).filter(Boolean))].sort();
+    const current = select.value;
+
+    // Rebuild options
+    select.innerHTML = '<option value="all">All Sectors</option>';
+    for (const s of sectors) {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        select.appendChild(opt);
+    }
+
+    // Restore previous selection if still valid
+    if (current && sectors.includes(current)) {
+        select.value = current;
+    }
 }
 
 function applyScorecardFilters() {
@@ -894,6 +918,7 @@ async function triggerScan() {
                 if (newScan && (!scanData || newScan.id !== scanData.id)) {
                     clearInterval(poll);
                     scanData = newScan;
+                    populateSectorFilter();
                     renderScorecard();
                     updateScanInfo();
                     renderRegimeBanner();
