@@ -51,15 +51,15 @@ async function apiCall(path, options = {}) {
 
 // ── Server Status ──
 async function checkServerStatus() {
-    const dot = document.getElementById('serverDot');
-    const text = document.getElementById('serverText');
+    const dot = document.getElementById('serverStatusDot');
+    const text = document.getElementById('serverStatusText');
     try {
         const health = await apiCall('/api/health');
-        if (dot) { dot.className = 'dot connected'; }
+        if (dot) { dot.className = 'server-status-dot dot connected'; }
         if (text) { text.textContent = 'Connected'; }
         return health;
     } catch (e) {
-        if (dot) { dot.className = 'dot disconnected'; }
+        if (dot) { dot.className = 'server-status-dot dot disconnected'; }
         if (text) { text.textContent = e.message === 'Unauthorized' ? 'Invalid API key' : 'Disconnected'; }
         return null;
     }
@@ -691,7 +691,7 @@ async function init() {
     // If no API key stored, prompt for it
     if (!API_KEY) {
         if (!promptForApiKey()) {
-            const text = document.getElementById('serverText');
+            const text = document.getElementById('serverStatusText');
             if (text) text.textContent = 'API key required';
             return;
         }
