@@ -1,0 +1,423 @@
+    <div class="app-layout">
+        <aside class="sidebar">
+            <!-- Header / Branding -->
+            <div class="sidebar-header">
+                <div class="header-branding">
+                    <div class="header-subtitle">Powered by ARC Investments</div>
+                    <h1>APEX</h1>
+                    <p class="header-tagline">Advisory Portfolio EXpert</p>
+                </div>
+                <div class="header-actions">
+                    <div id="serverStatus" class="server-status" title="Server connection status">
+                        <span class="server-status-dot" id="serverStatusDot">&#9679;</span>
+                        <span id="serverStatusText">Connecting...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Portfolio Hero -->
+            <div class="hero">
+                <div class="hero-label">Total Portfolio Value</div>
+                <div class="hero-value" id="portfolioValue">$0.00</div>
+            </div>
+
+            <!-- Secondary Stats -->
+            <div class="secondary-stats">
+                <div class="secondary-stat">
+                    <div class="stat-label">Cash Available</div>
+                    <div class="stat-value" id="cashValue">$0.00</div>
+                </div>
+                <div class="secondary-stat">
+                    <div class="stat-label">Total Invested</div>
+                    <div class="stat-value" id="investedValue">$0.00</div>
+                </div>
+                <div class="secondary-stat">
+                    <div class="stat-label">Positions</div>
+                    <div class="stat-value" id="positionsCount">0</div>
+                </div>
+            </div>
+
+            <!-- Holdings -->
+            <div class="sidebar-holdings">
+                <h2 class="chart-title">Current Holdings</h2>
+                <div class="holdings-list" id="holdingsList">
+                    <div class="empty-state">
+                        No positions yet
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="sidebar-actions">
+                <button onclick="triggerScan()">Scan Market</button>
+                <button onclick="openTradeModal()" class="secondary">+ Add Trade</button>
+                <button onclick="refreshPrices()" class="secondary">Refresh Prices</button>
+            </div>
+
+            <!-- Alert Badge -->
+            <div class="sidebar-alert-badge" id="sidebarAlertBadge" style="display: none;">
+                <span class="alert-badge-icon">&#9888;</span>
+                <span class="alert-badge-text">
+                    <span id="alertBadgeCount">0</span> Active Alerts
+                </span>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <!-- Alerts Section -->
+            <div class="card" id="alertsSection" style="display: none;">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="alertsBody" onclick="toggleSection('alerts')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('alerts')}">
+                    <h2 class="chart-title">
+                        Structure Alerts
+                        <span class="alerts-title-badge" id="alertsTitleBadge">0</span>
+                    </h2>
+                    <span class="toggle-icon" id="alertsToggle">&#9662;</span>
+                </div>
+                <div class="section-body" id="alertsBody">
+                    <div class="alerts-list" id="alertsList">
+                        <div class="empty-state">No active alerts</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Analytics -->
+            <div class="analytics-section">
+                <h2 class="chart-title">Performance Analytics</h2>
+                <div class="indices-grid">
+                    <div class="index-card">
+                        <div class="index-header">
+                            <div class="index-name">Total Return</div>
+                            <div class="index-symbol">ROI</div>
+                        </div>
+                        <div class="index-price" id="totalReturn">0.00%</div>
+                        <div class="index-change" id="totalReturnDollar">$0.00</div>
+                    </div>
+                    <div class="index-card">
+                        <div class="index-header">
+                            <div class="index-name">Daily Performance</div>
+                            <div class="index-symbol">TODAY</div>
+                        </div>
+                        <div class="index-price" id="dailyPerformance">0.00%</div>
+                        <div class="index-change" id="dailyPerformanceDollar">$0.00</div>
+                    </div>
+                    <div class="index-card">
+                        <div class="index-header">
+                            <div class="index-name">Win Rate</div>
+                            <div class="index-symbol">W/L</div>
+                        </div>
+                        <div class="index-price" id="winRate">0%</div>
+                        <div class="index-change" id="winLossRatio">0W / 0L</div>
+                    </div>
+                    <div class="index-card">
+                        <div class="index-header">
+                            <div class="index-name">Alpha vs SPY</div>
+                            <div class="index-symbol">&alpha;</div>
+                        </div>
+                        <div class="index-price" id="alphaValue">--</div>
+                        <div class="index-change" id="spyReturn">--</div>
+                    </div>
+                    <div class="index-card expandable-card" role="button" tabindex="0" aria-label="Expand best trade details" onclick="toggleAnalyticsExpansion('bestTrade', this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleAnalyticsExpansion('bestTrade',this)}">
+                        <span class="expand-icon">&#9662;</span>
+                        <div class="index-header">
+                            <div class="index-name">Best Trade</div>
+                            <div class="index-symbol">TOP</div>
+                        </div>
+                        <div class="index-price" id="bestTrade">--</div>
+                        <div class="index-change positive" id="bestTradeGain">+0%</div>
+                    </div>
+                    <div class="index-card expandable-card" role="button" tabindex="0" aria-label="Expand worst trade details" onclick="toggleAnalyticsExpansion('worstTrade', this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleAnalyticsExpansion('worstTrade',this)}">
+                        <span class="expand-icon">&#9662;</span>
+                        <div class="index-header">
+                            <div class="index-name">Worst Trade</div>
+                            <div class="index-symbol">BTM</div>
+                        </div>
+                        <div class="index-price" id="worstTrade">--</div>
+                        <div class="index-change negative" id="worstTradeLoss">-0%</div>
+                    </div>
+                </div>
+                <!-- Shared popover for analytics cards -->
+                <div class="analytics-popover" id="analyticsPopover">
+                    <div class="analytics-popover-content" id="analyticsPopoverContent"></div>
+                </div>
+                <div class="sub-stats-grid">
+                    <div class="sub-stat-card">
+                        <div class="sub-stat-label">Avg Hold Time</div>
+                        <div class="sub-stat-value" id="avgHoldTime">--</div>
+                    </div>
+                    <div class="sub-stat-card">
+                        <div class="sub-stat-label">Total Trades</div>
+                        <div class="sub-stat-value" id="totalTrades">0</div>
+                    </div>
+                    <div class="sub-stat-card">
+                        <div class="sub-stat-label">Drawdown</div>
+                        <div class="sub-stat-value" id="drawdownValue">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-grid">
+                <div class="chart-card card">
+                    <h2 class="chart-title">Portfolio Performance</h2>
+                    <canvas id="performanceChart"></canvas>
+                </div>
+                <div class="chart-card card">
+                    <h2 class="chart-title">Sector Allocation</h2>
+                    <div class="sector-chart-container">
+                        <canvas id="sectorChart"></canvas>
+                    </div>
+                    <div id="sectorLegend" class="sector-legend"></div>
+                </div>
+            </div>
+
+            <!-- Market Regime Indicator -->
+            <div class="regime-banner" id="regimeBanner" style="display: none;" aria-live="polite">
+                <div class="regime-banner-inner">
+                    <div class="regime-label" id="regimeLabel">--</div>
+                    <div class="regime-description" id="regimeDescription">Waiting for scan data</div>
+                    <div class="regime-timestamp" id="regimeTimestamp"></div>
+                    <div class="regime-vix" id="regimeVIX"></div>
+                </div>
+            </div>
+
+            <!-- Holdings Detail (collapsible) -->
+            <div class="card collapsible-section" id="holdingsDetailSection">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="holdingsDetailBody" onclick="toggleSection('holdingsDetail')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('holdingsDetail')}">
+                    <h2 class="chart-title">Current Holdings</h2>
+                    <span class="toggle-icon" id="holdingsDetailToggle">&#9662;</span>
+                </div>
+                <div class="section-body" id="holdingsDetailBody">
+                    <div class="holdings-detail-grid" id="holdingsDetailGrid">
+                        <div class="empty-state">No positions yet</div>
+                    </div>
+                    <!-- Shared catalyst popover -->
+                    <div class="catalyst-popover" id="catalystPopover">
+                        <div class="catalyst-popover-title">Catalyst</div>
+                        <div class="catalyst-popover-text" id="catalystPopoverText"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Candidate Scorecard (collapsible) -->
+            <div class="card collapsible-section" id="candidateScorecardSection">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="false" aria-controls="candidateScorecardBody" onclick="toggleSection('candidateScorecard')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('candidateScorecard')}">
+                    <h2 class="chart-title">Candidate Scorecard</h2>
+                    <span class="toggle-icon collapsed" id="candidateScorecardToggle">&#9662;</span>
+                </div>
+                <div class="section-body collapsed" id="candidateScorecardBody">
+                    <!-- Scorecard Toolbar -->
+                    <div class="scorecard-toolbar" id="scorecardToolbar">
+                        <div class="scorecard-toolbar-row">
+                            <div class="scorecard-filter-group">
+                                <label for="scorecardSort">Sort by</label>
+                                <select id="scorecardSort" onchange="applyScorecardFilters()">
+                                    <option value="conviction" selected>Conviction</option>
+                                    <option value="score">Score</option>
+                                    <option value="sector">Sector</option>
+                                    <option value="symbol">Symbol</option>
+                                </select>
+                            </div>
+                            <div class="scorecard-filter-group">
+                                <label for="scorecardSectorFilter">Sector</label>
+                                <select id="scorecardSectorFilter" onchange="applyScorecardFilters()">
+                                    <option value="all" selected>All Sectors</option>
+                                    <option value="technology">Technology</option>
+                                    <option value="healthcare">Healthcare</option>
+                                    <option value="financials">Financials</option>
+                                    <option value="consumer_discretionary">Consumer Disc.</option>
+                                    <option value="consumer_staples">Consumer Staples</option>
+                                    <option value="industrials">Industrials</option>
+                                    <option value="energy">Energy</option>
+                                    <option value="utilities">Utilities</option>
+                                    <option value="real_estate">Real Estate</option>
+                                    <option value="materials">Materials</option>
+                                    <option value="communication">Communication</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div class="scorecard-filter-group">
+                                <label for="scorecardConvictionMin">Min Conviction</label>
+                                <select id="scorecardConvictionMin" onchange="applyScorecardFilters()">
+                                    <option value="0" selected>Any</option>
+                                    <option value="3">3+</option>
+                                    <option value="5">5+</option>
+                                    <option value="7">7+</option>
+                                    <option value="8">8+</option>
+                                    <option value="9">9+</option>
+                                </select>
+                            </div>
+                            <div class="scorecard-filter-group scorecard-toggle-group">
+                                <label for="scorecardWatchlistOnly">
+                                    <input type="checkbox" id="scorecardWatchlistOnly" onchange="applyScorecardFilters()">
+                                    Watchlist Only
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Scorecard Content -->
+                    <div id="candidateScorecardContent">
+                        <div class="empty-state">Waiting for scan results</div>
+                    </div>
+
+                    <!-- Scorecard Pagination -->
+                    <div class="scorecard-pagination" id="scorecardPagination">
+                        <button class="pagination-btn" id="scorecardPrevBtn" onclick="scorecardPrevPage()" disabled>Prev</button>
+                        <span class="pagination-indicator" id="scorecardPageIndicator">Page 1 of 1</span>
+                        <button class="pagination-btn" id="scorecardNextBtn" onclick="scorecardNextPage()" disabled>Next</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sector Rotation Heatmap (collapsible, collapsed by default) -->
+            <div class="card collapsible-section" id="sectorRotationSection">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="false" aria-controls="sectorRotationBody" onclick="toggleSection('sectorRotation')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('sectorRotation')}">
+                    <h2 class="chart-title">Sector Rotation Heatmap</h2>
+                    <span class="toggle-icon collapsed" id="sectorRotationToggle">&#9662;</span>
+                </div>
+                <div class="section-body collapsed" id="sectorRotationBody">
+                    <div id="sectorRotationContent">
+                        <div class="empty-state">Waiting for scan data</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trade Journal (formerly Decision Reasoning, collapsible) -->
+            <div class="chart-card card collapsible-section" id="tradeJournalSection">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="tradeJournalBody" onclick="toggleSection('tradeJournal')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('tradeJournal')}">
+                    <h2 class="chart-title">Trade Journal</h2>
+                    <span class="toggle-icon" id="tradeJournalToggle">&#9662;</span>
+                </div>
+                <div class="section-body" id="tradeJournalBody">
+                    <div id="tradeJournal">
+                        <div class="empty-state">
+                            No trades yet. Add a trade to start building your journal.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Learning Insights Section (collapsible) -->
+            <div class="card collapsible-section" id="learningInsightsSection">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="false" aria-controls="learningInsightsBody" onclick="toggleSection('learningInsights')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('learningInsights')}">
+                    <h2 class="chart-title">Learning Insights</h2>
+                    <span class="toggle-icon collapsed" id="learningInsightsToggle">&#9662;</span>
+                </div>
+                <div class="section-body collapsed" id="learningInsightsBody">
+                    <div class="learning-tag">Rules derived from trade history</div>
+                    <div id="learningInsights">
+                        <div class="empty-state">
+                            No trades yet - Learning will begin after your first completed trade
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Activity Feed (collapsible) -->
+            <div class="activity-feed card collapsible-section" id="activityFeedSection">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="activityFeedBody" onclick="toggleSection('activityFeed')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('activityFeed')}">
+                    <h2 class="chart-title">Recent Activity</h2>
+                    <span class="toggle-icon" id="activityFeedToggle">&#9662;</span>
+                </div>
+                <div class="section-body" id="activityFeedBody">
+                    <div id="activityFeed" aria-live="polite">
+                        <div class="empty-state">
+                            No activity yet
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat with APEX -->
+            <div class="chat-section card">
+                <h2 class="chart-title">Chat with APEX</h2>
+                <div id="chatGate" class="chat-gate">
+                    <div class="chat-gate-text">Chat uses API tokens per message</div>
+                    <button class="chat-gate-btn" onclick="activateChat()">Start Chat Session</button>
+                </div>
+                <div class="chat-messages" id="chatMessages" style="display: none;">
+                    <div class="agent-message">
+                        <div class="message-avatar">A</div>
+                        <div class="message-content">
+                            <div class="message-name">APEX</div>
+                            <div class="message-text">APEX online. I'm your advisory dashboard assistant. Ask me about your portfolio, any stock, market conditions, or trading concepts.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-input-container" id="chatInputContainer" style="display: none;">
+                    <input type="text" id="chatInput" placeholder="Ask APEX about your portfolio or a stock..." onkeydown="handleChatKeyPress(event)">
+                    <button onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Trade Entry Modal -->
+    <div class="modal" id="tradeModal" onclick="if(event.target===this)closeTradeModal()">
+        <div class="modal-content modal-narrow">
+            <div class="modal-header">
+                <h2>Record Trade</h2>
+                <button class="modal-close-btn" onclick="closeTradeModal()" aria-label="Close">&times;</button>
+            </div>
+            <form id="tradeForm" onsubmit="submitTrade(event)">
+                <div class="control-group">
+                    <label for="tradeSymbol">Symbol</label>
+                    <input type="text" id="tradeSymbol" placeholder="e.g. AAPL" required autocomplete="off" style="text-transform: uppercase;">
+                </div>
+
+                <div class="control-group">
+                    <label>Action</label>
+                    <div class="trade-action-group">
+                        <label class="trade-action-option">
+                            <input type="radio" name="tradeAction" value="BUY" checked>
+                            <span class="trade-action-label buy-label">BUY</span>
+                        </label>
+                        <label class="trade-action-option">
+                            <input type="radio" name="tradeAction" value="SELL">
+                            <span class="trade-action-label sell-label">SELL</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="control-group-row">
+                    <div class="control-group">
+                        <label for="tradeShares">Shares</label>
+                        <input type="number" id="tradeShares" placeholder="0" min="1" step="1" required>
+                    </div>
+                    <div class="control-group">
+                        <label for="tradePrice">Price ($)</label>
+                        <input type="number" id="tradePrice" placeholder="0.00" min="0.01" step="0.01" required>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label for="tradeDate">Date</label>
+                    <input type="date" id="tradeDate" required>
+                </div>
+
+                <div class="control-group">
+                    <label for="tradeConviction">Conviction: <span id="tradeConvictionValue">5</span>/10</label>
+                    <input type="range" id="tradeConviction" min="1" max="10" value="5" oninput="document.getElementById('tradeConvictionValue').textContent=this.value">
+                </div>
+
+                <div class="control-group">
+                    <label for="tradeNotes">Notes</label>
+                    <textarea id="tradeNotes" rows="3" placeholder="Why are you making this trade? What's your thesis?"></textarea>
+                </div>
+
+                <div class="trade-form-actions">
+                    <button type="submit" class="btn-trade-submit">Submit Trade</button>
+                    <button type="button" class="secondary" onclick="closeTradeModal()">Cancel</button>
+                </div>
+                <div id="tradeFormStatus"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Result Modal -->
+    <div class="modal" id="resultModal" onclick="if(event.target===this)this.classList.remove('active')">
+        <div class="modal-content modal-narrow">
+            <div id="resultModalBody"></div>
+            <button class="result-modal-close" onclick="document.getElementById('resultModal').classList.remove('active')">Close</button>
+        </div>
+    </div>

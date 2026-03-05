@@ -1,0 +1,19 @@
+{
+  "name": "apex-advisory",
+  "version": "1.0.0",
+  "description": "APEX Advisory Dashboard — Pi-backed stock advisory with data-driven conviction ratings",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test 'tests/**/*.test.js'",
+    "migrate": "node server/migrate.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.0",
+    "express": "^4.22.1",
+    "node-cron": "^3.0.3",
+    "sql.js": "^1.14.1"
+  }
+}
